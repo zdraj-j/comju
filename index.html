@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="claro">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>LexGestión — Gestión de Trámites</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+<!-- ==================== SIDEBAR ==================== -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="logo">
+      <span class="logo-icon">⚖</span>
+      <span class="logo-text">LexGestión</span>
+    </div>
+    <button class="sidebar-toggle" id="sidebarToggle" title="Cerrar menú">✕</button>
+  </div>
+
+  <nav class="sidebar-nav">
+    <button class="nav-item active" data-view="all">
+      <span class="nav-icon">◈</span> Todos los trámites
+    </button>
+    <button class="nav-item" data-view="today">
+      <span class="nav-icon">◉</span> Hoy / Vencidos
+      <span class="badge" id="todayBadge">0</span>
+    </button>
+    <button class="nav-item" data-view="finished">
+      <span class="nav-icon">◎</span> Terminados
+    </button>
+    <button class="nav-item" data-view="config">
+      <span class="nav-icon">◫</span> Configuración
+    </button>
+  </nav>
+
+  <div class="sidebar-filters" id="sidebarFilters">
+    <p class="filter-label">Filtros</p>
+    <div class="filter-group">
+      <label>Abogado</label>
+      <select id="filterAbogado">
+        <option value="">Todos</option>
+        <option value="abogado1" id="filterAbogado1Opt">Abogado 1</option>
+        <option value="abogado2" id="filterAbogado2Opt">Abogado 2</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Módulo</label>
+      <select id="filterModulo"><option value="">Todos</option></select>
+    </div>
+    <div class="filter-group">
+      <label>Responsable próx. acción</label>
+      <select id="filterResponsable">
+        <option value="">Todos</option>
+        <option value="abogado1" id="filterResp1Opt">Abogado 1</option>
+        <option value="abogado2" id="filterResp2Opt">Abogado 2</option>
+        <option value="auxiliar">Auxiliar</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Etapa</label>
+      <select id="filterEtapa">
+        <option value="">Todas</option>
+        <option value="gestion">Gestión</option>
+        <option value="seguimiento">Seguimiento</option>
+      </select>
+    </div>
+    <button class="btn-clear-filters" id="clearFilters">Limpiar filtros</button>
+  </div>
+
+  <div class="sidebar-actions">
+    <button class="btn-sidebar-action" id="exportBtn">↑ Exportar JSON</button>
+    <button class="btn-sidebar-action" id="importBtn">↓ Importar JSON</button>
+    <input type="file" id="importFile" accept=".json" style="display:none" />
+  </div>
+</aside>
+
+<!-- ==================== MAIN ==================== -->
+<div class="app-layout">
+  <header class="topbar">
+    <button class="menu-btn" id="menuBtn">☰</button>
+    <div class="topbar-title" id="topbarTitle">Todos los trámites</div>
+    <div class="topbar-right">
+
+      <!-- Búsqueda -->
+      <div class="search-wrap">
+        <input type="text" id="searchInput" placeholder="Buscar…" />
+        <span class="search-icon">⌕</span>
+      </div>
+
+      <!-- Ordenar (desktop) -->
+      <div class="sort-wrap" id="sortWrap">
+        <select id="sortSelect" title="Ordenar por…">
+          <option value="vencimiento">↑ Vencimiento</option>
+          <option value="proximaAccion">↑ Próx. acción</option>
+          <option value="mixto">↑ Más urgente</option>
+          <option value="abogado">Abogado A–Z</option>
+          <option value="numero">Número ↑</option>
+        </select>
+      </div>
+
+      <!-- Columnas (desktop) -->
+      <div class="col-switcher" id="colSwitcher">
+        <button class="col-btn active" data-cols="1" title="1 columna">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <rect x="3" y="2" width="10" height="4" rx="1" fill="currentColor"/>
+            <rect x="3" y="7" width="10" height="4" rx="1" fill="currentColor" opacity=".5"/>
+            <rect x="3" y="12" width="10" height="2" rx="1" fill="currentColor" opacity=".3"/>
+          </svg>
+        </button>
+        <button class="col-btn" data-cols="2" title="2 columnas">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <rect x="2" y="2" width="5" height="12" rx="1" fill="currentColor"/>
+            <rect x="9" y="2" width="5" height="12" rx="1" fill="currentColor" opacity=".5"/>
+          </svg>
+        </button>
+        <button class="col-btn" data-cols="3" title="3 columnas">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <rect x="1" y="2" width="4" height="12" rx="1" fill="currentColor"/>
+            <rect x="6" y="2" width="4" height="12" rx="1" fill="currentColor" opacity=".6"/>
+            <rect x="11" y="2" width="4" height="12" rx="1" fill="currentColor" opacity=".3"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Botón opciones móvil -->
+      <button class="mob-opts-btn" id="mobOptsBtn" title="Opciones">⋮</button>
+
+      <button class="btn-primary" id="newTramiteBtn">+ Nuevo</button>
+    </div>
+  </header>
+
+  <!-- Bottom sheet opciones móvil -->
+  <div class="mob-sheet-overlay" id="mobSheetOverlay"></div>
+  <div class="mob-sheet" id="mobSheet">
+    <div class="mob-sheet-handle"></div>
+    <div class="mob-sheet-content">
+      <p class="mob-sheet-label">Ordenar por</p>
+      <select id="sortSelectMob" class="mob-sheet-select">
+        <option value="vencimiento">↑ Vencimiento</option>
+        <option value="proximaAccion">↑ Próx. acción</option>
+        <option value="mixto">↑ Más urgente</option>
+        <option value="abogado">Abogado A–Z</option>
+        <option value="numero">Número ↑</option>
+      </select>
+      <p class="mob-sheet-label" style="margin-top:16px">Columnas</p>
+      <div class="mob-cols-row">
+        <button class="mob-col-btn active" data-cols="1">1 col.</button>
+        <button class="mob-col-btn" data-cols="2">2 col.</button>
+      </div>
+    </div>
+  </div>
+
+  <main class="main-content">
+
+    <section class="view active" id="view-all">
+      <div class="tramite-list cols-1" id="tramiteList"></div>
+      <div class="empty-state" id="emptyAll">
+        <div class="empty-icon">📋</div>
+        <p>No hay trámites. ¡Crea el primero!</p>
+      </div>
+    </section>
+
+    <section class="view" id="view-today">
+      <p class="view-desc">Trámites cuya próxima acción es hoy o está vencida.</p>
+      <div class="tramite-list cols-1" id="todayList"></div>
+      <div class="empty-state" id="emptyToday">
+        <div class="empty-icon">✅</div>
+        <p>¡Todo al día! No hay trámites vencidos ni para hoy.</p>
+      </div>
+    </section>
+
+    <section class="view" id="view-finished">
+      <p class="view-desc">Trámites terminados. Se eliminan automáticamente a los 30 días.</p>
+      <div class="tramite-list cols-1" id="finishedList"></div>
+      <div class="empty-state" id="emptyFinished">
+        <div class="empty-icon">🗂️</div>
+        <p>No hay trámites terminados.</p>
+      </div>
+    </section>
+
+    <!-- Vista: Configuración -->
+    <section class="view" id="view-config">
+      <div class="config-card">
+        <h2>Configuración</h2>
+
+        <!-- TEMA -->
+        <div class="config-section">
+          <h3>Apariencia</h3>
+          <p class="config-hint" style="margin-bottom:12px">Elige el tema de colores de la interfaz.</p>
+          <div class="theme-grid" id="themeGrid">
+            <!-- Generado por JS -->
+          </div>
+        </div>
+
+        <!-- Vista de tarjetas -->
+        <div class="config-section">
+          <h3>Vista de tarjetas</h3>
+          <div class="config-row">
+            <label>Modo de detalle</label>
+            <div class="toggle-group">
+              <button class="toggle-btn active" id="modeExpand">Expandir en lugar</button>
+              <button class="toggle-btn" id="modeModal">Ventana modal</button>
+            </div>
+          </div>
+          <p class="config-hint"><strong>Expandir</strong> abre la tarjeta hacia abajo. <strong>Ventana modal</strong> abre el panel central.</p>
+        </div>
+
+        <!-- Abogados -->
+        <div class="config-section">
+          <h3>Abogados</h3>
+          <div class="config-row abogado-config-row">
+            <label>Abogado 1</label>
+            <input type="text" id="nameAbogado1" />
+            <input type="color" id="colorAbogado1" class="color-picker" />
+            <span class="color-preview" id="preview1"></span>
+          </div>
+          <div class="config-row abogado-config-row">
+            <label>Abogado 2</label>
+            <input type="text" id="nameAbogado2" />
+            <input type="color" id="colorAbogado2" class="color-picker" />
+            <span class="color-preview" id="preview2"></span>
+          </div>
+          <button class="btn-primary" id="saveNamesBtn">Guardar</button>
+        </div>
+
+        <!-- Colores barra -->
+        <div class="config-section">
+          <h3>Colores de barra de progreso</h3>
+          <p class="config-hint">Los tres segmentos de la barra superior de cada tarjeta.</p>
+          <div class="bar-colors-grid">
+            <div class="bar-color-row">
+              <div class="bar-segment-preview" id="barPreview1"></div>
+              <label>Análisis</label>
+              <input type="color" id="colorBar1" class="color-picker" />
+            </div>
+            <div class="bar-color-row">
+              <div class="bar-segment-preview" id="barPreview2"></div>
+              <label>Cumplimiento</label>
+              <input type="color" id="colorBar2" class="color-picker" />
+            </div>
+            <div class="bar-color-row">
+              <div class="bar-segment-preview" id="barPreview3"></div>
+              <label>Terminado</label>
+              <input type="color" id="colorBar3" class="color-picker" />
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+            <button class="btn-primary" id="saveBarColorsBtn">Guardar colores</button>
+            <button class="btn-secondary" id="resetBarColorsBtn">Restablecer</button>
+          </div>
+        </div>
+
+        <!-- Módulos -->
+        <div class="config-section">
+          <h3>Módulos</h3>
+          <div id="modulosList" class="modulos-list"></div>
+          <div class="config-row modulo-add-row">
+            <input type="text" id="newModuloSigla" placeholder="SIGLA" maxlength="8" style="width:90px" />
+            <input type="text" id="newModuloNombre" placeholder="Nombre completo" />
+            <button class="btn-primary" id="addModuloBtn">Agregar</button>
+          </div>
+        </div>
+
+        <!-- Zona de peligro -->
+        <div class="config-section danger-zone">
+          <h3>Zona de peligro</h3>
+          <button class="btn-danger" id="clearAllBtn">🗑 Borrar todos los datos</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ==================== MODAL TRÁMITE ==================== -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" id="tramiteModal">
+    <div class="modal-header">
+      <h2 id="modalTitle">Nuevo trámite</h2>
+      <button class="modal-close" id="modalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Número de trámite *</label>
+          <input type="text" id="fNumero" placeholder="Ej: 64554" />
+        </div>
+        <div class="form-group">
+          <label>Módulo *</label>
+          <select id="fModulo"></select>
+        </div>
+        <div class="form-group full">
+          <label>Descripción breve *</label>
+          <input type="text" id="fDescripcion" placeholder="Descripción del trámite" />
+        </div>
+        <div class="form-group">
+          <label>Abogado responsable *</label>
+          <select id="fAbogado">
+            <option value="abogado1" id="fAbog1Opt">Abogado 1</option>
+            <option value="abogado2" id="fAbog2Opt">Abogado 2</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Fecha de vencimiento *</label>
+          <input type="date" id="fFechaVencimiento" />
+        </div>
+      </div>
+      <div class="modal-section">
+        <h3>Próxima acción <span style="font-weight:400;color:var(--text-muted);font-size:11px">(opcional)</span></h3>
+        <div class="form-grid">
+          <div class="form-group full">
+            <label>Descripción</label>
+            <input type="text" id="fAccionDesc" placeholder="¿Qué se debe hacer?" />
+          </div>
+          <div class="form-group">
+            <label>Fecha</label>
+            <input type="date" id="fAccionFecha" />
+          </div>
+          <div class="form-group">
+            <label>Responsable</label>
+            <select id="fAccionResp"></select>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" id="cancelModal">Cancelar</button>
+      <button class="btn-primary" id="saveTramite">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== MODAL DETALLE ==================== -->
+<div class="modal-overlay" id="detailOverlay">
+  <div class="modal modal-large" id="detailModal">
+    <div class="modal-header">
+      <div>
+        <h2 id="detailTitle">Trámite #</h2>
+        <p id="detailSubtitle" class="modal-subtitle"></p>
+      </div>
+      <div class="modal-header-actions">
+        <button class="btn-icon" id="editDetailBtn" title="Editar">✎</button>
+        <button class="btn-icon btn-icon-danger" id="deleteDetailBtn" title="Eliminar">🗑</button>
+        <button class="btn-icon btn-icon-finish" id="finishDetailBtn" title="Terminar trámite">✓</button>
+        <button class="modal-close" id="detailClose">✕</button>
+      </div>
+    </div>
+    <div class="modal-body detail-body" id="detailModalBody"></div>
+  </div>
+</div>
+
+<!-- ==================== TOAST ==================== -->
+<div class="toast" id="toast"></div>
+
+<script src="script.js"></script>
+</body>
+</html>
