@@ -1,45 +1,29 @@
 /**
- * LexGestión — Script Principal v4
- * Nuevos en v4:
- *  1. Temas de color: claro, oscuro, sepia, pizarra
- *  2. Versión móvil: bottom sheet para ordenar y columnas
- *  3. Scroll correcto en móvil (overflow fix)
- *  4. Tarjetas compactas en móvil
+ * JuriTask — Script Principal v5
+ * Cambios v5:
+ *  1. Nombre cambiado de LexGestión a JuriTask
+ *  2. Trámites propios (sin abogado, solo check terminar)
+ *  3. Próxima acción fusionada con seguimiento (responsable en cada tarea)
+ *  4. Nueva tarea oculta en modal y en tarjetas (botón la muestra)
+ *  5. Check "terminar" en tarjeta (tercer check, color verde)
+ *  6. Fecha de vencimiento oculta en tarjetas con cumplimiento marcado
+ *  7. Hoy/Vencidos: considera fechas de seguimiento y vencimiento
  */
 
 // ============================================================
 // TEMAS
 // ============================================================
 const THEMES = [
-  {
-    id: 'claro',
-    nombre: 'Claro',
-    swatches: ['#f4f5f7', '#ffffff', '#3b5bdb', '#1a1d23'],
-  },
-  {
-    id: 'oscuro',
-    nombre: 'Oscuro',
-    swatches: ['#0f1117', '#1a1d27', '#6e8efb', '#e8eaf0'],
-  },
-  {
-    id: 'sepia',
-    nombre: 'Sepia',
-    swatches: ['#f5f0e8', '#fdf8f0', '#8b6c2e', '#2c2416'],
-  },
-  {
-    id: 'pizarra',
-    nombre: 'Pizarra',
-    swatches: ['#1e2533', '#26304a', '#58a6f0', '#d4daf0'],
-  },
+  { id: 'claro',    nombre: 'Claro',    swatches: ['#f4f5f7','#ffffff','#3b5bdb','#1a1d23'] },
+  { id: 'oscuro',   nombre: 'Oscuro',   swatches: ['#0f1117','#1a1d27','#6e8efb','#e8eaf0'] },
+  { id: 'sepia',    nombre: 'Sepia',    swatches: ['#f5f0e8','#fdf8f0','#8b6c2e','#2c2416'] },
+  { id: 'pizarra',  nombre: 'Pizarra',  swatches: ['#1e2533','#26304a','#58a6f0','#d4daf0'] },
 ];
 
 function applyTheme(id) {
   document.documentElement.setAttribute('data-theme', id);
   STATE.config.theme = id;
-  // Actualizar botones en config si están visibles
-  document.querySelectorAll('.theme-card').forEach(c => {
-    c.classList.toggle('active', c.dataset.theme === id);
-  });
+  document.querySelectorAll('.theme-card').forEach(c => c.classList.toggle('active', c.dataset.theme === id));
 }
 
 // ============================================================
@@ -88,9 +72,9 @@ let editingId = null;
 // PERSISTENCIA
 // ============================================================
 const KEYS = {
-  tramites: 'lexgestion_tramites',
-  order:    'lexgestion_order',
-  config:   'lexgestion_config',
+  tramites: 'juritask_tramites',
+  order:    'juritask_order',
+  config:   'juritask_config',
 };
 
 function saveAll() {
@@ -100,19 +84,36 @@ function saveAll() {
 }
 
 function loadAll() {
+  // Migración desde claves antiguas de LexGestión
+  const OLD = { tramites:'lexgestion_tramites', order:'lexgestion_order', config:'lexgestion_config' };
   try {
-    const t = localStorage.getItem(KEYS.tramites);
+    const t = localStorage.getItem(KEYS.tramites) || localStorage.getItem(OLD.tramites);
     if (t) STATE.tramites = JSON.parse(t);
-    const o = localStorage.getItem(KEYS.order);
+    const o = localStorage.getItem(KEYS.order) || localStorage.getItem(OLD.order);
     if (o) STATE.order = JSON.parse(o);
-    const c = localStorage.getItem(KEYS.config);
-    if (c) STATE.config = Object.assign(
-      { ...DEFAULT_CONFIG, modulos: [...DEFAULT_CONFIG.modulos] },
-      JSON.parse(c)
-    );
-  } catch (e) {
-    console.error('Error cargando datos:', e);
-  }
+    const c = localStorage.getItem(KEYS.config) || localStorage.getItem(OLD.config);
+    if (c) STATE.config = Object.assign({ ...DEFAULT_CONFIG, modulos: [...DEFAULT_CONFIG.modulos] }, JSON.parse(c));
+    // Migración: proximaAccion → primera tarea de seguimiento si no existe
+    STATE.tramites.forEach(t => {
+      if (!t.tipo) t.tipo = 'abogado'; // retrocompatibilidad
+      if (!t.seguimiento) t.seguimiento = [];
+      if (!t.notas) t.notas = [];
+      if (!t.gestion) t.gestion = { analisis: false, cumplimiento: false };
+      // Si tenía proximaAccion y no tiene tareas de seguimiento equivalente, migrarla
+      if (t.proximaAccion && t.proximaAccion.descripcion) {
+        const yaExiste = t.seguimiento.some(s => s.descripcion === t.proximaAccion.descripcion && s.fecha === t.proximaAccion.fecha);
+        if (!yaExiste) {
+          t.seguimiento.unshift({
+            descripcion: t.proximaAccion.descripcion,
+            fecha: t.proximaAccion.fecha || '',
+            responsable: t.proximaAccion.responsable || (t.abogado || 'propio'),
+            estado: 'pendiente',
+          });
+        }
+        delete t.proximaAccion;
+      }
+    });
+  } catch (e) { console.error('Error cargando datos:', e); }
 }
 
 // ============================================================
@@ -120,7 +121,6 @@ function loadAll() {
 // ============================================================
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
-/** Fecha local YYYY-MM-DD (evita desfase UTC) */
 function today() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -142,6 +142,7 @@ function dateClass(s) {
 
 function vencClass(s, tramite) {
   if (!s) return '';
+  // Con cumplimiento marcado, no mostrar alerta
   if (tramite && tramite.gestion && tramite.gestion.cumplimiento) return 'upcoming';
   const t = today();
   if (s < t) return 'overdue';
@@ -151,15 +152,24 @@ function vencClass(s, tramite) {
   return 'upcoming';
 }
 
+/** Fecha de la tarea pendiente más urgente del trámite */
+function proximaFechaSeguimiento(t) {
+  const pendientes = (t.seguimiento || []).filter(s => s.estado === 'pendiente' && s.fecha);
+  if (!pendientes.length) return null;
+  return pendientes.map(s => s.fecha).sort()[0];
+}
+
 function abogadoName(key) {
   if (key === 'abogado1') return STATE.config.abogado1;
   if (key === 'abogado2') return STATE.config.abogado2;
+  if (key === 'propio')   return 'Propio';
   return 'Auxiliar';
 }
 
 function abogadoColor(key) {
   if (key === 'abogado1') return STATE.config.colorAbogado1 || '#15803d';
   if (key === 'abogado2') return STATE.config.colorAbogado2 || '#1d4ed8';
+  if (key === 'propio')   return '#9333ea';
   return '#6b7280';
 }
 
@@ -172,6 +182,21 @@ function hexToRgba(hex, alpha) {
 
 function computeEtapa(t) {
   return (t.gestion && t.gestion.cumplimiento) ? 'seguimiento' : 'gestion';
+}
+
+function esPropio(t) { return t.tipo === 'propio'; }
+
+/** ¿Aparece este trámite en la vista Hoy/Vencidos? */
+function esHoyOVencido(t) {
+  const hoy = today();
+  // Vencimiento hoy o pasado (si cumplimiento no marcado)
+  if (t.fechaVencimiento && !(t.gestion && t.gestion.cumplimiento)) {
+    if (t.fechaVencimiento <= hoy) return true;
+  }
+  // Alguna tarea pendiente de seguimiento hoy o pasada
+  const pf = proximaFechaSeguimiento(t);
+  if (pf && pf <= hoy) return true;
+  return false;
 }
 
 function purgeExpiredFinished() {
@@ -228,6 +253,21 @@ function updateAbogadoNames() {
   ].forEach(([id,val]) => { const el = document.getElementById(id); if (el) el.textContent = val; });
 }
 
+/** Opciones de responsable para formularios de tarea según tipo de trámite */
+function buildRespOptions(tipoTramite, abogadoKey, selectedValue) {
+  const opts = [];
+  if (tipoTramite === 'abogado') {
+    opts.push({ value: abogadoKey, label: abogadoName(abogadoKey) });
+    opts.push({ value: 'auxiliar', label: 'Auxiliar' });
+  } else {
+    opts.push({ value: 'propio', label: 'Propio' });
+    opts.push({ value: 'auxiliar', label: 'Auxiliar' });
+  }
+  return opts.map(o =>
+    `<option value="${o.value}" ${o.value === selectedValue ? 'selected' : ''}>${o.label}</option>`
+  ).join('');
+}
+
 // ============================================================
 // COLUMNAS
 // ============================================================
@@ -237,9 +277,7 @@ function setColumns(n) {
     const el = document.getElementById(id);
     if (el) el.className = `tramite-list cols-${n}`;
   });
-  // Desktop buttons
   document.querySelectorAll('.col-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.cols) === n));
-  // Mobile buttons
   document.querySelectorAll('.mob-col-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.cols) === n));
   saveAll();
 }
@@ -259,11 +297,8 @@ function setDetailMode(mode) {
 // ============================================================
 function setSortBy(val) {
   STATE.config.sortBy = val;
-  // Sync both selects
-  const ds = document.getElementById('sortSelect');
-  const ms = document.getElementById('sortSelectMob');
-  if (ds) ds.value = val;
-  if (ms) ms.value = val;
+  const ds = document.getElementById('sortSelect'); if(ds) ds.value = val;
+  const ms = document.getElementById('sortSelectMob'); if(ms) ms.value = val;
   saveAll(); renderAll();
 }
 
@@ -273,16 +308,18 @@ function sortActives(list) {
   const FAR = '9999-99-99';
   return [...list].sort((a, b) => {
     let cmp = 0;
+    const pfa = proximaFechaSeguimiento(a) || FAR;
+    const pfb = proximaFechaSeguimiento(b) || FAR;
     if (sortBy === 'vencimiento') {
       cmp = (a.fechaVencimiento||FAR).localeCompare(b.fechaVencimiento||FAR);
-    } else if (sortBy === 'proximaAccion') {
-      cmp = (a.proximaAccion?.fecha||FAR).localeCompare(b.proximaAccion?.fecha||FAR);
+    } else if (sortBy === 'seguimiento') {
+      cmp = pfa.localeCompare(pfb);
     } else if (sortBy === 'mixto') {
-      const ma = [a.fechaVencimiento, a.proximaAccion?.fecha].filter(Boolean).sort()[0] || FAR;
-      const mb = [b.fechaVencimiento, b.proximaAccion?.fecha].filter(Boolean).sort()[0] || FAR;
+      const ma = [a.fechaVencimiento, pfa].filter(x=>x!==FAR).sort()[0] || FAR;
+      const mb = [b.fechaVencimiento, pfb].filter(x=>x!==FAR).sort()[0] || FAR;
       cmp = ma.localeCompare(mb);
     } else if (sortBy === 'abogado') {
-      cmp = abogadoName(a.abogado).toLowerCase().localeCompare(abogadoName(b.abogado).toLowerCase());
+      cmp = abogadoName(a.abogado||'propio').localeCompare(abogadoName(b.abogado||'propio'));
     } else if (sortBy === 'numero') {
       cmp = (parseInt(a.numero)||0) - (parseInt(b.numero)||0);
     }
@@ -292,15 +329,19 @@ function sortActives(list) {
 }
 
 // ============================================================
-// DETALLE — CONTENIDO COMPARTIDO
+// CONTENIDO DE DETALLE
 // ============================================================
 function buildDetailContent(t) {
+  const esP = esPropio(t);
   const etapa = computeEtapa(t);
   const etapaLabel = etapa === 'seguimiento' ? 'Seguimiento' : 'Gestión';
   const etapaCls   = etapa === 'seguimiento' ? 'seguimiento' : '';
   const p = `det_${t.id}`;
+  const vcls = vencClass(t.fechaVencimiento, t);
+  const showVenc = t.fechaVencimiento && !(t.gestion && t.gestion.cumplimiento);
 
-  return `
+  // Sección gestión (solo trámites de abogado)
+  const gestionHtml = esP ? '' : `
     <div class="detail-section">
       <h3>Gestión</h3>
       <div class="checks-row">
@@ -313,43 +354,10 @@ function buildDetailContent(t) {
           <span class="check-custom"></span> Cumplimiento
         </label>
       </div>
-    </div>
+    </div>`;
 
-    <div class="detail-section">
-      <h3>Seguimiento <span class="etapa-badge ${etapaCls}" id="${p}_etapabadge">${etapaLabel}</span></h3>
-      <div id="${p}_actividades"></div>
-      <div class="add-actividad-row">
-        <input type="text" id="${p}_newActDesc" placeholder="Nueva actividad…" />
-        <input type="date" id="${p}_newActFecha" />
-        <button class="btn-small" id="${p}_addAct">+ Agregar</button>
-      </div>
-    </div>
-
-    <div class="detail-section">
-      <h3>Próxima acción</h3>
-      <div class="form-grid">
-        <div class="form-group full">
-          <label>Descripción</label>
-          <input type="text" id="${p}_accionDesc" value="${escapeAttr(t.proximaAccion?.descripcion||'')}" placeholder="¿Qué se debe hacer?" />
-        </div>
-        <div class="form-group">
-          <label>Fecha</label>
-          <input type="date" id="${p}_accionFecha" value="${t.proximaAccion?.fecha||''}" />
-        </div>
-        <div class="form-group">
-          <label>Responsable</label>
-          <select id="${p}_accionResp">
-            <option value="${t.abogado}" ${(!t.proximaAccion?.responsable || t.proximaAccion?.responsable === t.abogado) ? 'selected':''}>${abogadoName(t.abogado)}</option>
-            <option value="auxiliar" ${t.proximaAccion?.responsable === 'auxiliar' ? 'selected':''}>Auxiliar</option>
-          </select>
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-        <button class="btn-small" id="${p}_saveAccion">Guardar próxima acción</button>
-        <button class="btn-small" id="${p}_clearAccion" style="background:var(--surface);color:var(--danger);border:1px solid var(--danger)">✕ Eliminar acción</button>
-      </div>
-    </div>
-
+  // Vencimiento
+  const vencHtml = showVenc ? `
     <div class="detail-section">
       <h3>Fecha de vencimiento</h3>
       <div class="form-grid">
@@ -359,8 +367,39 @@ function buildDetailContent(t) {
         </div>
       </div>
       <button class="btn-small" id="${p}_saveVenc" style="margin-top:10px">Guardar fecha</button>
-    </div>
+    </div>` : `
+    <div class="detail-section">
+      <h3>Fecha de vencimiento</h3>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Fecha</label>
+          <input type="date" id="${p}_vencimiento" value="${t.fechaVencimiento||''}" />
+        </div>
+      </div>
+      <button class="btn-small" id="${p}_saveVenc" style="margin-top:10px">Guardar fecha</button>
+    </div>`;
 
+  return `
+    ${gestionHtml}
+    <div class="detail-section">
+      <h3>Seguimiento <span class="etapa-badge ${etapaCls}" id="${p}_etapabadge">${etapaLabel}</span></h3>
+      <div id="${p}_actividades"></div>
+      <div class="nueva-tarea-toggle">
+        <button class="btn-nueva-tarea" id="${p}_btnNuevaTarea" type="button">＋ Nueva tarea</button>
+      </div>
+      <div class="add-actividad-form" id="${p}_formNuevaTarea" style="display:none">
+        <input type="text" id="${p}_newActDesc" placeholder="¿Qué se debe hacer?" />
+        <div class="add-actividad-form-row">
+          <input type="date" id="${p}_newActFecha" />
+          <select id="${p}_newActResp">${buildRespOptions(t.tipo || 'abogado', t.abogado || 'abogado1', t.abogado || 'propio')}</select>
+        </div>
+        <div class="add-actividad-btns">
+          <button class="btn-small" id="${p}_addAct">+ Agregar</button>
+          <button class="btn-small" id="${p}_cancelAct" style="background:var(--surface);color:var(--text-secondary);border:1px solid var(--border)">Cancelar</button>
+        </div>
+      </div>
+    </div>
+    ${vencHtml}
     <div class="detail-section">
       <h3>Notas</h3>
       <div id="${p}_notas"></div>
@@ -374,45 +413,45 @@ function buildDetailContent(t) {
 
 function bindDetailContent(t, container) {
   const p = `det_${t.id}`;
+  const esP = esPropio(t);
 
-  container.querySelector(`#${p}_analisis`).addEventListener('change', e => {
-    t.gestion.analisis = e.target.checked; saveAll(); renderAll();
-  });
-  container.querySelector(`#${p}_cumplimiento`).addEventListener('change', e => {
-    t.gestion.cumplimiento = e.target.checked;
-    const badge = container.querySelector(`#${p}_etapabadge`);
-    const etapa = computeEtapa(t);
-    if (badge) { badge.textContent = etapa === 'seguimiento' ? 'Seguimiento' : 'Gestión'; badge.className = 'etapa-badge' + (etapa === 'seguimiento' ? ' seguimiento' : ''); }
-    saveAll(); renderAll();
-  });
+  if (!esP) {
+    container.querySelector(`#${p}_analisis`).addEventListener('change', e => {
+      t.gestion.analisis = e.target.checked; saveAll(); renderAll();
+    });
+    container.querySelector(`#${p}_cumplimiento`).addEventListener('change', e => {
+      t.gestion.cumplimiento = e.target.checked;
+      const badge = container.querySelector(`#${p}_etapabadge`);
+      const etapa = computeEtapa(t);
+      if (badge) { badge.textContent = etapa==='seguimiento'?'Seguimiento':'Gestión'; badge.className='etapa-badge'+(etapa==='seguimiento'?' seguimiento':''); }
+      saveAll(); renderAll();
+    });
+  }
 
+  // Seguimiento
   renderActividadesIn(t, container.querySelector(`#${p}_actividades`));
+
+  const btnNueva = container.querySelector(`#${p}_btnNuevaTarea`);
+  const formNueva = container.querySelector(`#${p}_formNuevaTarea`);
+  btnNueva.addEventListener('click', () => {
+    const open = formNueva.style.display !== 'none';
+    formNueva.style.display = open ? 'none' : 'block';
+  });
+  container.querySelector(`#${p}_cancelAct`).addEventListener('click', () => { formNueva.style.display = 'none'; });
   container.querySelector(`#${p}_addAct`).addEventListener('click', () => {
     const desc  = container.querySelector(`#${p}_newActDesc`).value.trim();
     const fecha = container.querySelector(`#${p}_newActFecha`).value;
+    const resp  = container.querySelector(`#${p}_newActResp`).value;
     if (!desc) { showToast('Escribe una descripción.'); return; }
-    t.seguimiento.push({ descripcion: desc, fecha, estado: 'pendiente' });
+    t.seguimiento.push({ descripcion: desc, fecha, responsable: resp, estado: 'pendiente' });
     container.querySelector(`#${p}_newActDesc`).value = '';
     container.querySelector(`#${p}_newActFecha`).value = '';
-    saveAll(); renderActividadesIn(t, container.querySelector(`#${p}_actividades`));
-    showToast('Actividad agregada.');
+    formNueva.style.display = 'none';
+    saveAll(); renderAll(); renderActividadesIn(t, container.querySelector(`#${p}_actividades`));
+    showToast('Tarea agregada.');
   });
 
-  container.querySelector(`#${p}_saveAccion`).addEventListener('click', () => {
-    const desc = container.querySelector(`#${p}_accionDesc`).value.trim();
-    const fecha = container.querySelector(`#${p}_accionFecha`).value;
-    const resp  = container.querySelector(`#${p}_accionResp`).value;
-    t.proximaAccion = (desc || fecha) ? { descripcion: desc, fecha, responsable: resp } : null;
-    saveAll(); renderAll(); showToast('Próxima acción guardada.');
-  });
-
-  container.querySelector(`#${p}_clearAccion`).addEventListener('click', () => {
-    t.proximaAccion = null;
-    container.querySelector(`#${p}_accionDesc`).value = '';
-    container.querySelector(`#${p}_accionFecha`).value = '';
-    saveAll(); renderAll(); showToast('Próxima acción eliminada.');
-  });
-
+  // Vencimiento
   container.querySelector(`#${p}_saveVenc`).addEventListener('click', () => {
     const fecha = container.querySelector(`#${p}_vencimiento`).value;
     if (!fecha) { showToast('Selecciona una fecha.'); return; }
@@ -420,6 +459,7 @@ function bindDetailContent(t, container) {
     showToast('Fecha de vencimiento actualizada.');
   });
 
+  // Notas
   renderNotasIn(t, container.querySelector(`#${p}_notas`));
   container.querySelector(`#${p}_addNota`).addEventListener('click', () => {
     const texto = container.querySelector(`#${p}_newNota`).value.trim();
@@ -438,6 +478,7 @@ function renderActividadesIn(t, listEl) {
     const div = document.createElement('div');
     div.className = 'actividad-item';
     const isDone = act.estado === 'realizado';
+    const dcls = dateClass(act.fecha);
     div.innerHTML = `
       <div class="actividad-check-wrap">
         <label class="round-check-wrap">
@@ -447,21 +488,22 @@ function renderActividadesIn(t, listEl) {
       </div>
       <div class="actividad-info">
         <div class="actividad-desc ${isDone ? 'done' : ''}">${escapeHtml(act.descripcion)}</div>
-        <div class="actividad-fecha">
+        <div class="actividad-meta">
           <input type="date" value="${act.fecha||''}" />
-          <span class="actividad-estado ${act.estado}">${act.estado === 'realizado' ? 'Realizado' : 'Pendiente'}</span>
+          ${act.responsable ? `<span class="actividad-resp">${abogadoName(act.responsable)}</span>` : ''}
+          <span class="actividad-estado ${act.estado}">${isDone ? 'Realizado' : 'Pendiente'}</span>
         </div>
       </div>
       <button class="actividad-delete" title="Eliminar">✕</button>`;
     div.querySelector('input[type="checkbox"]').addEventListener('change', e => {
       t.seguimiento[i].estado = e.target.checked ? 'realizado' : 'pendiente';
-      saveAll(); renderActividadesIn(t, listEl);
+      saveAll(); renderAll(); renderActividadesIn(t, listEl);
     });
     div.querySelector('input[type="date"]').addEventListener('change', e => {
-      t.seguimiento[i].fecha = e.target.value; saveAll();
+      t.seguimiento[i].fecha = e.target.value; saveAll(); renderAll();
     });
     div.querySelector('.actividad-delete').addEventListener('click', () => {
-      if (confirm('¿Eliminar esta actividad?')) { t.seguimiento.splice(i,1); saveAll(); renderActividadesIn(t, listEl); }
+      if (confirm('¿Eliminar esta tarea?')) { t.seguimiento.splice(i,1); saveAll(); renderAll(); renderActividadesIn(t,listEl); }
     });
     listEl.appendChild(div);
   });
@@ -477,7 +519,7 @@ function renderNotasIn(t, listEl) {
     div.innerHTML = `
       <div class="nota-text">${escapeHtml(nota.texto)}</div>
       <div class="nota-fecha">${formatDatetime(nota.fecha)}</div>
-      <button class="nota-delete" title="Eliminar">✕</button>`;
+      <button class="nota-delete">✕</button>`;
     div.querySelector('.nota-delete').addEventListener('click', () => {
       if (confirm('¿Eliminar esta nota?')) { t.notas.splice(idx,1); saveAll(); renderNotasIn(t,listEl); }
     });
@@ -499,15 +541,13 @@ function openDetail(id) {
 function openDetailModal(t) {
   closeAllExpands();
   document.getElementById('detailTitle').textContent = `Trámite #${t.numero}`;
+  const esP = esPropio(t);
   document.getElementById('detailSubtitle').textContent =
-    `${t.descripcion} · ${abogadoName(t.abogado)} · ${t.modulo}` +
+    `${t.descripcion} · ${esP ? 'Propio' : abogadoName(t.abogado)} · ${t.modulo}` +
     (t.fechaVencimiento ? ` · Vence: ${formatDate(t.fechaVencimiento)}` : '');
   const body = document.getElementById('detailModalBody');
   body.innerHTML = buildDetailContent(t);
   bindDetailContent(t, body);
-  const finBtn = document.getElementById('finishDetailBtn');
-  finBtn.textContent = t.terminado ? '↩' : '✓';
-  finBtn.title = t.terminado ? 'Deshacer terminar' : 'Marcar como terminado';
   document.getElementById('detailOverlay').classList.add('open');
 }
 
@@ -535,21 +575,15 @@ function openDetailExpand(t) {
     actBar.innerHTML = `
       <button class="btn-icon" title="Editar" data-action="edit">✎</button>
       <button class="btn-icon btn-icon-danger" title="Eliminar" data-action="delete">🗑</button>
-      <button class="btn-icon btn-icon-finish" title="${t.terminado?'Deshacer terminar':'Terminar'}" data-action="finish">${t.terminado?'↩':'✓'}</button>
       <button class="btn-icon modal-close" title="Cerrar" data-action="close">✕</button>`;
 
     actBar.querySelector('[data-action="edit"]').addEventListener('click', () => { closeAllExpands(); openModal(t); });
     actBar.querySelector('[data-action="delete"]').addEventListener('click', () => {
       if (confirm('¿Eliminar este trámite?')) {
         STATE.tramites = STATE.tramites.filter(x => x.id !== t.id);
-        STATE.order    = STATE.order.filter(id => id !== t.id);
+        STATE.order = STATE.order.filter(id => id !== t.id);
         saveAll(); closeAllExpands(); renderAll(); showToast('Trámite eliminado.');
       }
-    });
-    actBar.querySelector('[data-action="finish"]').addEventListener('click', () => {
-      if (t.terminado) { t.terminado = false; t.terminadoEn = null; showToast('Trámite reactivado.'); }
-      else { if (!confirm('¿Marcar como terminado?')) return; t.terminado = true; t.terminadoEn = new Date().toISOString(); showToast('Trámite terminado.'); }
-      saveAll(); closeAllExpands(); renderAll();
     });
     actBar.querySelector('[data-action="close"]').addEventListener('click', closeAllExpands);
 
@@ -584,41 +618,97 @@ function buildCard(t) {
   wrapper.dataset.id = t.id;
 
   const card = document.createElement('div');
-  card.className = 'tramite-card' + (t.terminado ? ' finished-card' : '');
+  const esP = esPropio(t);
+  card.className = 'tramite-card' + (t.terminado ? ' finished-card' : '') + (esP ? ' propio-card' : '');
   card.dataset.id = t.id;
   card.draggable = !t.terminado;
 
-  const seg1 = t.gestion?.analisis    ? 'active-1' : '';
-  const seg2 = t.gestion?.cumplimiento ? 'active-2' : '';
-  const seg3 = t.terminado             ? 'active-3' : '';
+  const seg1 = (!esP && t.gestion?.analisis)    ? 'active-1' : '';
+  const seg2 = (!esP && t.gestion?.cumplimiento) ? 'active-2' : '';
+  const seg3 = t.terminado                        ? 'active-3' : '';
 
-  const accion = t.proximaAccion || {};
-  const dcls   = dateClass(accion.fecha);
-  const etapa  = computeEtapa(t);
-  const vcls   = vencClass(t.fechaVencimiento, t);
+  const etapa = computeEtapa(t);
 
-  const etapaTag = t.terminado
-    ? `<span class="tag tag-terminado">Terminado</span>`
-    : etapa === 'seguimiento'
-      ? `<span class="tag tag-etapa-seguimiento">Seguimiento</span>`
-      : `<span class="tag tag-etapa-gestion">Gestión</span>`;
-
-  const abColor = abogadoColor(t.abogado);
-  const abBg    = hexToRgba(abColor, 0.12);
-  const abogadoTag = `<span class="tag tag-abogado" style="background:${abBg};color:${abColor}">${abogadoName(t.abogado)}</span>`;
-
-  const accionFechaLabel = accion.fecha ? `<span class="accion-fecha ${dcls}">${formatDate(accion.fecha)}</span>` : '';
-  const accionDescTxt = accion.descripcion
-    ? `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">${accion.descripcion.slice(0,48)}${accion.descripcion.length>48?'…':''}</span>`
-    : '<span style="color:var(--text-muted)">Sin próxima acción</span>';
-
+  // Vencimiento: ocultar si cumplimiento marcado
+  const showVenc = t.fechaVencimiento && !(t.gestion && t.gestion.cumplimiento);
+  const vcls = showVenc ? vencClass(t.fechaVencimiento, t) : '';
   let vencHtml = '';
-  if (t.fechaVencimiento) {
+  if (showVenc) {
     const lbl = vcls==='overdue' ? '⚠ Vencido' : vcls==='today' ? '⚠ Hoy' : vcls==='soon' ? '⏰ Pronto' : '📅 Vence';
     vencHtml = `<span class="venc-fecha ${vcls}">${lbl}: ${formatDate(t.fechaVencimiento)}</span>`;
   }
 
-  const showChecks = !t.terminado;
+  // Tag abogado/propio
+  let responsableTag;
+  if (esP) {
+    responsableTag = `<span class="tag tag-propio">👤 Propio</span>`;
+  } else {
+    const abColor = abogadoColor(t.abogado);
+    const abBg = hexToRgba(abColor, 0.12);
+    responsableTag = `<span class="tag tag-abogado" style="background:${abBg};color:${abColor}">${abogadoName(t.abogado)}</span>`;
+  }
+
+  // Etapa tag
+  const etapaTag = t.terminado
+    ? `<span class="tag tag-terminado">Terminado</span>`
+    : esP ? '' // los propios no muestran etapa
+    : etapa === 'seguimiento'
+      ? `<span class="tag tag-etapa-seguimiento">Seguimiento</span>`
+      : `<span class="tag tag-etapa-gestion">Gestión</span>`;
+
+  // Seguimiento: solo tareas PENDIENTES visibles en la tarjeta
+  const tareasPendientes = (t.seguimiento || []).filter(s => s.estado === 'pendiente');
+  const seguimientoHtml = tareasPendientes.length
+    ? `<div class="card-seguimiento">
+        ${tareasPendientes.slice(0,2).map(s => {
+          const dc = dateClass(s.fecha);
+          const fechaTag = s.fecha ? `<span class="seg-fecha ${dc}">${formatDate(s.fecha)}</span>` : '';
+          const respTag  = s.responsable ? `<span style="color:var(--text-muted);font-size:10px">· ${abogadoName(s.responsable)}</span>` : '';
+          return `<div class="card-seg-item">
+            <div class="seg-dot ${dc}"></div>
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.descripcion}</span>
+            ${fechaTag}${respTag}
+          </div>`;
+        }).join('')}
+        ${tareasPendientes.length > 2 ? `<div class="card-seg-item" style="color:var(--text-muted);font-size:11px">+${tareasPendientes.length-2} más…</div>` : ''}
+      </div>`
+    : '';
+
+  // Checks según tipo
+  let checksHtml = '';
+  if (!t.terminado) {
+    if (esP) {
+      // Sólo check terminar
+      checksHtml = `
+        <div class="card-checks" id="checks_${t.id}">
+          <label class="round-check-wrap check-terminar" title="Terminar trámite">
+            <input type="checkbox" class="card-check-terminar" />
+            <div class="round-check-box"></div>
+            <span class="check-label-text">Fin</span>
+          </label>
+        </div>`;
+    } else {
+      // Análisis, Cumplimiento, Terminar
+      checksHtml = `
+        <div class="card-checks" id="checks_${t.id}">
+          <label class="round-check-wrap" title="Análisis">
+            <input type="checkbox" class="card-check-analisis" ${t.gestion?.analisis ? 'checked' : ''} />
+            <div class="round-check-box"></div>
+            <span class="check-label-text">An.</span>
+          </label>
+          <label class="round-check-wrap" title="Cumplimiento">
+            <input type="checkbox" class="card-check-cumplimiento" ${t.gestion?.cumplimiento ? 'checked' : ''} />
+            <div class="round-check-box"></div>
+            <span class="check-label-text">Cu.</span>
+          </label>
+          <label class="round-check-wrap check-terminar" title="Terminar trámite">
+            <input type="checkbox" class="card-check-terminar" />
+            <div class="round-check-box"></div>
+            <span class="check-label-text">Fin</span>
+          </label>
+        </div>`;
+    }
+  }
 
   card.innerHTML = `
     <div class="card-progress-bar">
@@ -627,50 +717,70 @@ function buildCard(t) {
       <div class="progress-segment ${seg3}"></div>
     </div>
     <div class="card-body">
-      ${showChecks ? `
-      <div class="card-checks" id="checks_${t.id}">
-        <label class="round-check-wrap" title="Análisis">
-          <input type="checkbox" class="card-check-analisis" ${t.gestion?.analisis?'checked':''} />
-          <div class="round-check-box"></div>
-          <span class="check-label-text">An.</span>
-        </label>
-        <label class="round-check-wrap" title="Cumplimiento">
-          <input type="checkbox" class="card-check-cumplimiento" ${t.gestion?.cumplimiento?'checked':''} />
-          <div class="round-check-box"></div>
-          <span class="check-label-text">Cu.</span>
-        </label>
-      </div>` : ''}
+      ${checksHtml}
       <div class="card-info">
         <div class="card-top-row">
           <span class="card-numero">#${t.numero}</span>
           <span class="tag tag-modulo">${t.modulo}</span>
-          ${abogadoTag}
+          ${responsableTag}
           ${etapaTag}
         </div>
         <div class="card-desc">${escapeHtml(t.descripcion || '(sin descripción)')}</div>
         <div class="card-dates">${vencHtml}</div>
-        <div class="card-accion">
-          <div class="accion-dot ${dcls}"></div>
-          ${accionDescTxt}
-          ${accionFechaLabel}
-          ${accion.responsable ? `<span style="color:var(--text-muted);font-size:11px">· ${abogadoName(accion.responsable)}</span>` : ''}
-        </div>
+        ${seguimientoHtml}
       </div>
     </div>`;
 
+  // Zona nueva tarea en el pie de la tarjeta (siempre visible para activos)
+  if (!t.terminado) {
+    const tareaRow = document.createElement('div');
+    tareaRow.className = 'card-nueva-tarea-row';
+    const btnTarea = document.createElement('button');
+    btnTarea.className = 'btn-card-tarea';
+    btnTarea.textContent = '＋ Nueva tarea';
+    tareaRow.appendChild(btnTarea);
+    card.appendChild(tareaRow);
+
+    // El formulario de nueva tarea en la tarjeta abre el panel de detalle directamente
+    btnTarea.addEventListener('click', e => {
+      e.stopPropagation();
+      openDetail(t.id);
+      // Espera a que se abra el panel y luego muestra el form
+      setTimeout(() => {
+        const p = `det_${t.id}`;
+        const form = document.getElementById(`${p}_formNuevaTarea`);
+        if (form) { form.style.display = 'block'; form.querySelector('input')?.focus(); }
+      }, 380);
+    });
+  }
+
+  // Click en card
   card.addEventListener('click', e => {
-    if (e.target.closest('.card-checks')) return;
+    if (e.target.closest('.card-checks') || e.target.closest('.card-nueva-tarea-row')) return;
     openDetail(t.id);
   });
 
-  if (showChecks) {
+  // Checks listeners
+  if (!t.terminado) {
     const cc = card.querySelector(`#checks_${t.id}`);
     cc.addEventListener('click', e => e.stopPropagation());
-    card.querySelector('.card-check-analisis').addEventListener('change', e => {
-      t.gestion.analisis = e.target.checked; saveAll(); renderAll();
-    });
-    card.querySelector('.card-check-cumplimiento').addEventListener('change', e => {
-      t.gestion.cumplimiento = e.target.checked; saveAll(); renderAll();
+
+    if (!esP) {
+      card.querySelector('.card-check-analisis').addEventListener('change', e => {
+        t.gestion.analisis = e.target.checked; saveAll(); renderAll();
+      });
+      card.querySelector('.card-check-cumplimiento').addEventListener('change', e => {
+        t.gestion.cumplimiento = e.target.checked; saveAll(); renderAll();
+      });
+    }
+
+    // Check terminar
+    card.querySelector('.card-check-terminar').addEventListener('change', e => {
+      if (!e.target.checked) return;
+      e.target.checked = false; // reset visual, confirmamos
+      if (!confirm('¿Marcar este trámite como terminado?')) return;
+      t.terminado = true; t.terminadoEn = new Date().toISOString();
+      saveAll(); renderAll(); showToast('Trámite terminado. ✓');
     });
   }
 
@@ -714,6 +824,7 @@ function getById(id) { return STATE.tramites.find(t => t.id === id); }
 
 function getFilters() {
   return {
+    tipo:        document.getElementById('filterTipo').value,
     abogado:     document.getElementById('filterAbogado').value,
     modulo:      document.getElementById('filterModulo').value,
     responsable: document.getElementById('filterResponsable').value,
@@ -724,11 +835,15 @@ function getFilters() {
 
 function applyFilters(list, f) {
   return list.filter(t => {
-    if (f.abogado     && t.abogado !== f.abogado) return false;
-    if (f.modulo      && t.modulo !== f.modulo) return false;
-    if (f.responsable && t.proximaAccion?.responsable !== f.responsable) return false;
-    if (f.etapa       && computeEtapa(t) !== f.etapa) return false;
-    if (f.search      && !t.numero.toString().toLowerCase().includes(f.search)) return false;
+    if (f.tipo       && t.tipo !== f.tipo) return false;
+    if (f.abogado    && t.abogado !== f.abogado) return false;
+    if (f.modulo     && t.modulo !== f.modulo) return false;
+    if (f.responsable) {
+      const tieneResp = (t.seguimiento||[]).some(s => s.responsable === f.responsable);
+      if (!tieneResp) return false;
+    }
+    if (f.etapa      && computeEtapa(t) !== f.etapa) return false;
+    if (f.search     && !t.numero.toString().toLowerCase().includes(f.search) && !t.descripcion.toLowerCase().includes(f.search)) return false;
     return true;
   });
 }
@@ -746,47 +861,60 @@ function renderAll() {
   const sorted  = sortActives(actives);
   renderList(document.getElementById('tramiteList'), document.getElementById('emptyAll'), applyFilters(sorted, f));
 
-  const t = today();
-  const hoyVencidos = applyFilters(sorted.filter(tr => tr.proximaAccion?.fecha && tr.proximaAccion.fecha <= t), f);
-  renderList(document.getElementById('todayList'), document.getElementById('emptyToday'), hoyVencidos);
+  // Hoy/Vencidos: tareas de seguimiento vencidas/hoy O fecha de vencimiento vencida/hoy
+  const urgentes = applyFilters(sorted.filter(tr => esHoyOVencido(tr)), f);
+  renderList(document.getElementById('todayList'), document.getElementById('emptyToday'), urgentes);
 
   const badge = document.getElementById('todayBadge');
-  badge.textContent = hoyVencidos.length;
-  badge.classList.toggle('hidden', hoyVencidos.length === 0);
+  badge.textContent = urgentes.length;
+  badge.classList.toggle('hidden', urgentes.length === 0);
 
   renderList(document.getElementById('finishedList'), document.getElementById('emptyFinished'), STATE.tramites.filter(t => t.terminado));
   setColumns(STATE.config.columns);
 }
 
 // ============================================================
-// MODAL TRAMITE
+// MODAL TRÁMITE — TIPO TOGGLE
 // ============================================================
+let modalTipoActual = 'abogado';
+
+function setModalTipo(tipo) {
+  modalTipoActual = tipo;
+  document.getElementById('tipoBtnAbogado').classList.toggle('active', tipo === 'abogado');
+  document.getElementById('tipoBtnPropio').classList.toggle('active', tipo === 'propio');
+  document.getElementById('fAbogadoWrap').style.display = tipo === 'abogado' ? '' : 'none';
+  // Re-sync responsable select
+  syncTareaRespSelect();
+}
+
+function syncTareaRespSelect() {
+  const sel = document.getElementById('fTareaResp');
+  if (!sel) return;
+  const abKey = document.getElementById('fAbogado').value || 'abogado1';
+  sel.innerHTML = buildRespOptions(modalTipoActual, abKey, null);
+}
+
 function openModal(tramite = null) {
   isEditing = !!tramite;
   editingId = tramite ? tramite.id : null;
-  document.getElementById('modalTitle').textContent   = isEditing ? 'Editar trámite' : 'Nuevo trámite';
-  document.getElementById('fNumero').value            = tramite?.numero || '';
-  document.getElementById('fDescripcion').value       = tramite?.descripcion || '';
-  document.getElementById('fModulo').value            = tramite?.modulo || STATE.config.modulos[0]?.sigla || '';
-  document.getElementById('fAbogado').value           = tramite?.abogado || 'abogado1';
-  document.getElementById('fFechaVencimiento').value  = tramite?.fechaVencimiento || '';
-  document.getElementById('fAccionDesc').value        = tramite?.proximaAccion?.descripcion || '';
-  document.getElementById('fAccionFecha').value       = tramite?.proximaAccion?.fecha || '';
-  syncResponsableSelect(document.getElementById('fAbogado').value, tramite?.proximaAccion?.responsable || null);
-  document.getElementById('modalOverlay').classList.add('open');
-}
+  document.getElementById('modalTitle').textContent  = isEditing ? 'Editar trámite' : 'Nuevo trámite';
+  document.getElementById('fNumero').value           = tramite?.numero || '';
+  document.getElementById('fDescripcion').value      = tramite?.descripcion || '';
+  document.getElementById('fModulo').value           = tramite?.modulo || STATE.config.modulos[0]?.sigla || '';
+  document.getElementById('fAbogado').value          = tramite?.abogado || 'abogado1';
+  document.getElementById('fFechaVencimiento').value = tramite?.fechaVencimiento || '';
 
-function syncResponsableSelect(abogadoKey, currentValue) {
-  const sel = document.getElementById('fAccionResp');
-  sel.innerHTML = '';
-  const optA = document.createElement('option');
-  optA.value = abogadoKey; optA.textContent = abogadoName(abogadoKey);
-  sel.appendChild(optA);
-  const optAux = document.createElement('option');
-  optAux.value = 'auxiliar'; optAux.textContent = 'Auxiliar';
-  sel.appendChild(optAux);
-  if (currentValue && (currentValue === abogadoKey || currentValue === 'auxiliar')) sel.value = currentValue;
-  else sel.value = abogadoKey;
+  // Tipo
+  const tipo = tramite?.tipo || 'abogado';
+  setModalTipo(tipo);
+
+  // Ocultar form de nueva tarea
+  document.getElementById('nuevaTareaFieldsModal').style.display = 'none';
+  document.getElementById('fTareaDesc').value  = '';
+  document.getElementById('fTareaFecha').value = '';
+  syncTareaRespSelect();
+
+  document.getElementById('modalOverlay').classList.add('open');
 }
 
 function closeModal() {
@@ -800,30 +928,39 @@ function saveTramite() {
   const numero  = document.getElementById('fNumero').value.trim();
   const desc    = document.getElementById('fDescripcion').value.trim();
   const modulo  = document.getElementById('fModulo').value;
-  const abogado = document.getElementById('fAbogado').value;
+  const tipo    = modalTipoActual;
+  const abogado = tipo === 'abogado' ? document.getElementById('fAbogado').value : null;
   const venc    = document.getElementById('fFechaVencimiento').value;
-  const acDesc  = document.getElementById('fAccionDesc').value.trim();
-  const acFecha = document.getElementById('fAccionFecha').value;
-  const acResp  = document.getElementById('fAccionResp').value;
 
   if (!numero || !desc || !modulo || !venc) {
     showToast('Completa: número, descripción, módulo y fecha de vencimiento.'); return;
   }
 
-  const proximaAccion = (acDesc||acFecha)
-    ? { descripcion: acDesc, fecha: acFecha, responsable: acResp }
-    : null;
+  // Tarea inicial opcional
+  const tareaDesc  = document.getElementById('fTareaDesc').value.trim();
+  const tareaFecha = document.getElementById('fTareaFecha').value;
+  const tareaResp  = document.getElementById('fTareaResp').value;
+  const tareaInicial = tareaDesc
+    ? [{ descripcion: tareaDesc, fecha: tareaFecha, responsable: tareaResp, estado: 'pendiente' }]
+    : [];
 
   if (isEditing) {
     const t = getById(editingId);
-    if (t) Object.assign(t, { numero, descripcion: desc, modulo, abogado, fechaVencimiento: venc, proximaAccion });
+    if (t) {
+      Object.assign(t, { numero, descripcion: desc, modulo, tipo, fechaVencimiento: venc });
+      if (tipo === 'abogado') t.abogado = abogado;
+      else delete t.abogado;
+      if (tareaInicial.length) t.seguimiento.unshift(...tareaInicial);
+    }
     showToast('Trámite actualizado.');
   } else {
     const newT = {
-      id: genId(), numero, descripcion: desc, modulo, abogado, fechaVencimiento: venc,
-      gestion: { analisis: false, cumplimiento: false }, seguimiento: [], notas: [],
-      proximaAccion, terminado: false, terminadoEn: null, creadoEn: new Date().toISOString(),
+      id: genId(), numero, descripcion: desc, modulo, tipo, fechaVencimiento: venc,
+      gestion: { analisis: false, cumplimiento: false },
+      seguimiento: tareaInicial, notas: [],
+      terminado: false, terminadoEn: null, creadoEn: new Date().toISOString(),
     };
+    if (tipo === 'abogado') newT.abogado = abogado;
     STATE.tramites.push(newT); STATE.order.push(newT.id);
     showToast('Trámite creado.');
   }
@@ -834,25 +971,16 @@ function saveTramite() {
 // CONFIGURACIÓN
 // ============================================================
 function renderConfig() {
-  // Nombres/colores abogados
   const n1 = document.getElementById('nameAbogado1'); if (n1) n1.value = STATE.config.abogado1;
   const n2 = document.getElementById('nameAbogado2'); if (n2) n2.value = STATE.config.abogado2;
   const c1 = document.getElementById('colorAbogado1'); if (c1) { c1.value = STATE.config.colorAbogado1||'#15803d'; updateColorPreview(1); }
   const c2 = document.getElementById('colorAbogado2'); if (c2) { c2.value = STATE.config.colorAbogado2||'#1d4ed8'; updateColorPreview(2); }
-
-  // Colores barra
   const cb1 = document.getElementById('colorBar1'); if (cb1) cb1.value = STATE.config.colorBar1||'#f59e0b';
   const cb2 = document.getElementById('colorBar2'); if (cb2) cb2.value = STATE.config.colorBar2||'#3b5bdb';
   const cb3 = document.getElementById('colorBar3'); if (cb3) cb3.value = STATE.config.colorBar3||'#10b981';
   updateBarPreviews();
-
-  // Modo detalle
   setDetailMode(STATE.config.detailMode || 'expand');
-
-  // Módulos
   renderModulosList();
-
-  // Temas
   renderThemeGrid();
 }
 
@@ -866,19 +994,15 @@ function renderThemeGrid() {
     card.dataset.theme = theme.id;
     const swatchHtml = theme.swatches.map(c => `<div class="theme-swatch-part" style="background:${c}"></div>`).join('');
     card.innerHTML = `<div class="theme-swatch">${swatchHtml}</div><div class="theme-name">${theme.nombre}</div>`;
-    card.addEventListener('click', () => {
-      applyTheme(theme.id);
-      saveAll();
-      renderThemeGrid(); // re-render to update active state
-    });
+    card.addEventListener('click', () => { applyTheme(theme.id); saveAll(); renderThemeGrid(); });
     grid.appendChild(card);
   });
 }
 
 function updateColorPreview(n) {
-  const picker  = document.getElementById(`colorAbogado${n}`);
-  const preview = document.getElementById(`preview${n}`);
-  if (picker && preview) preview.style.background = picker.value;
+  const picker = document.getElementById(`colorAbogado${n}`);
+  const prev   = document.getElementById(`preview${n}`);
+  if (picker && prev) prev.style.background = picker.value;
 }
 
 function updateBarPreviews() {
@@ -898,9 +1022,7 @@ function renderModulosList() {
     row.className = 'modulo-row';
     row.innerHTML = `<span class="modulo-sigla">${m.sigla}</span><span class="modulo-nombre">${m.nombre}</span><button class="modulo-delete">✕</button>`;
     row.querySelector('.modulo-delete').addEventListener('click', () => {
-      if (confirm(`¿Eliminar módulo ${m.sigla}?`)) {
-        STATE.config.modulos.splice(i,1); saveAll(); populateModuloSelects(); renderModulosList();
-      }
+      if (confirm(`¿Eliminar módulo ${m.sigla}?`)) { STATE.config.modulos.splice(i,1); saveAll(); populateModuloSelects(); renderModulosList(); }
     });
     list.appendChild(row);
   });
@@ -912,7 +1034,7 @@ function renderModulosList() {
 function exportData() {
   const blob = new Blob([JSON.stringify({ tramites: STATE.tramites, order: STATE.order, config: STATE.config }, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = `lexgestion_${today()}.json`; a.click();
+  const a = document.createElement('a'); a.href = url; a.download = `juritask_${today()}.json`; a.click();
   URL.revokeObjectURL(url); showToast('Datos exportados.');
 }
 
@@ -922,8 +1044,19 @@ function importData(file) {
     try {
       const data = JSON.parse(e.target.result);
       if (data.tramites) STATE.tramites = data.tramites;
-      if (data.order) STATE.order = data.order;
-      if (data.config) STATE.config = Object.assign({...DEFAULT_CONFIG, modulos:[...DEFAULT_CONFIG.modulos]}, data.config);
+      if (data.order)    STATE.order = data.order;
+      if (data.config)   STATE.config = Object.assign({...DEFAULT_CONFIG, modulos:[...DEFAULT_CONFIG.modulos]}, data.config);
+      // Migrar si venían con proximaAccion
+      STATE.tramites.forEach(t => {
+        if (!t.tipo) t.tipo = 'abogado';
+        if (!t.seguimiento) t.seguimiento = [];
+        if (!t.notas) t.notas = [];
+        if (!t.gestion) t.gestion = { analisis: false, cumplimiento: false };
+        if (t.proximaAccion && t.proximaAccion.descripcion) {
+          t.seguimiento.unshift({ descripcion: t.proximaAccion.descripcion, fecha: t.proximaAccion.fecha||'', responsable: t.proximaAccion.responsable||(t.abogado||'propio'), estado: 'pendiente' });
+          delete t.proximaAccion;
+        }
+      });
       saveAll(); applyCssColors(); applyTheme(STATE.config.theme||'claro');
       populateModuloSelects(); updateAbogadoNames();
       setColumns(STATE.config.columns||1);
@@ -972,14 +1105,8 @@ function setupContainerDrop(container) {
 // ============================================================
 // BOTTOM SHEET MÓVIL
 // ============================================================
-function openMobSheet() {
-  document.getElementById('mobSheet').classList.add('open');
-  document.getElementById('mobSheetOverlay').classList.add('show');
-}
-function closeMobSheet() {
-  document.getElementById('mobSheet').classList.remove('open');
-  document.getElementById('mobSheetOverlay').classList.remove('show');
-}
+function openMobSheet() { document.getElementById('mobSheet').classList.add('open'); document.getElementById('mobSheetOverlay').classList.add('show'); }
+function closeMobSheet() { document.getElementById('mobSheet').classList.remove('open'); document.getElementById('mobSheetOverlay').classList.remove('show'); }
 
 // ============================================================
 // MODAL DRAGGABLE
@@ -988,41 +1115,32 @@ function initDraggableModal(modalEl) {
   const header = modalEl.querySelector('.modal-header');
   if (!header) return;
   let dragging = false, startX, startY, origLeft, origTop;
-
   header.addEventListener('mousedown', e => {
-    if (e.target.closest('button')) return;
-    if (isMobile()) return; // no drag en móvil
+    if (e.target.closest('button') || isMobile()) return;
     dragging = true;
     if (!modalEl.classList.contains('draggable-active')) {
       const rect = modalEl.getBoundingClientRect();
-      modalEl.style.left = rect.left + 'px';
-      modalEl.style.top  = rect.top  + 'px';
+      modalEl.style.left = rect.left + 'px'; modalEl.style.top = rect.top + 'px';
       modalEl.classList.add('draggable-active');
     }
     origLeft = parseFloat(modalEl.style.left)||0;
     origTop  = parseFloat(modalEl.style.top) ||0;
     startX = e.clientX; startY = e.clientY;
-    header.classList.add('is-dragging');
-    modalEl.classList.add('is-dragging');
+    header.classList.add('is-dragging'); modalEl.classList.add('is-dragging');
     e.preventDefault();
   });
-
   document.addEventListener('mousemove', e => {
     if (!dragging) return;
-    const margin = 8;
-    let newLeft = origLeft + (e.clientX - startX);
-    let newTop  = origTop  + (e.clientY - startY);
-    newLeft = Math.max(margin, Math.min(newLeft, window.innerWidth  - modalEl.offsetWidth  - margin));
-    newTop  = Math.max(margin, Math.min(newTop,  window.innerHeight - modalEl.offsetHeight - margin));
-    modalEl.style.left = newLeft + 'px';
-    modalEl.style.top  = newTop  + 'px';
+    const m = 8;
+    let l = origLeft + (e.clientX - startX), t2 = origTop + (e.clientY - startY);
+    l  = Math.max(m, Math.min(l,  window.innerWidth  - modalEl.offsetWidth  - m));
+    t2 = Math.max(m, Math.min(t2, window.innerHeight - modalEl.offsetHeight - m));
+    modalEl.style.left = l + 'px'; modalEl.style.top = t2 + 'px';
   });
-
   document.addEventListener('mouseup', () => {
     if (!dragging) return;
     dragging = false;
-    header.classList.remove('is-dragging');
-    modalEl.classList.remove('is-dragging');
+    header.classList.remove('is-dragging'); modalEl.classList.remove('is-dragging');
   });
 }
 
@@ -1052,7 +1170,7 @@ function switchView(view) {
 // ============================================================
 function escapeHtml(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>'); }
 function escapeAttr(str) { return String(str).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-function formatDatetime(iso) { return new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }); }
+function formatDatetime(iso) { try { return new Date(iso).toLocaleString('es-CO', { dateStyle:'short', timeStyle:'short' }); } catch { return iso; } }
 
 // ============================================================
 // INIT
@@ -1067,7 +1185,6 @@ function init() {
   setColumns(STATE.config.columns || 1);
   setDetailMode(STATE.config.detailMode || 'expand');
 
-  // Sync sort selects
   const sortVal = STATE.config.sortBy || 'vencimiento';
   const ds = document.getElementById('sortSelect'); if(ds) ds.value = sortVal;
   const ms = document.getElementById('sortSelectMob'); if(ms) ms.value = sortVal;
@@ -1076,7 +1193,7 @@ function init() {
   renderAll();
   setupContainerDrop(document.getElementById('tramiteList'));
 
-  // Navegación
+  // Navegación sidebar
   document.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => { switchView(btn.dataset.view); if (isMobile()) closeSidebar(); });
   });
@@ -1089,13 +1206,21 @@ function init() {
   // Nuevo trámite
   document.getElementById('newTramiteBtn').addEventListener('click', () => openModal());
 
-  // Abogado → sync responsable
-  document.getElementById('fAbogado').addEventListener('change', e => syncResponsableSelect(e.target.value, null));
+  // Toggle tipo de trámite en modal
+  document.getElementById('tipoBtnAbogado').addEventListener('click', () => setModalTipo('abogado'));
+  document.getElementById('tipoBtnPropio').addEventListener('click',  () => setModalTipo('propio'));
+
+  // Abogado change → sync responsable
+  document.getElementById('fAbogado').addEventListener('change', syncTareaRespSelect);
+
+  // Mostrar/ocultar form de tarea en modal
+  document.getElementById('btnMostrarTareaModal').addEventListener('click', () => {
+    const fields = document.getElementById('nuevaTareaFieldsModal');
+    fields.style.display = fields.style.display === 'none' ? 'block' : 'none';
+  });
 
   // Columnas desktop
-  document.querySelectorAll('.col-btn').forEach(btn => {
-    btn.addEventListener('click', () => setColumns(parseInt(btn.dataset.cols)));
-  });
+  document.querySelectorAll('.col-btn').forEach(btn => btn.addEventListener('click', () => setColumns(parseInt(btn.dataset.cols))));
 
   // Ordenar desktop
   document.getElementById('sortSelect').addEventListener('change', e => setSortBy(e.target.value));
@@ -1104,16 +1229,12 @@ function init() {
   document.getElementById('mobOptsBtn').addEventListener('click', openMobSheet);
   document.getElementById('mobSheetOverlay').addEventListener('click', closeMobSheet);
   document.getElementById('sortSelectMob').addEventListener('change', e => { setSortBy(e.target.value); closeMobSheet(); });
-  document.querySelectorAll('.mob-col-btn').forEach(btn => {
-    btn.addEventListener('click', () => { setColumns(parseInt(btn.dataset.cols)); closeMobSheet(); });
-  });
+  document.querySelectorAll('.mob-col-btn').forEach(btn => btn.addEventListener('click', () => { setColumns(parseInt(btn.dataset.cols)); closeMobSheet(); }));
 
-  // Modal tramite — sin cerrar al click fuera
+  // Modal tramite
   document.getElementById('modalClose').addEventListener('click', closeModal);
   document.getElementById('cancelModal').addEventListener('click', closeModal);
   document.getElementById('saveTramite').addEventListener('click', saveTramite);
-
-  // Modal draggable
   initDraggableModal(document.getElementById('tramiteModal'));
 
   // Modal detalle
@@ -1127,20 +1248,16 @@ function init() {
       saveAll(); renderAll(); closeDetail(); showToast('Trámite eliminado.');
     }
   });
-  document.getElementById('finishDetailBtn').addEventListener('click', () => {
-    const t = getById(currentDetailId); if (!t) return;
-    if (t.terminado) { t.terminado = false; t.terminadoEn = null; showToast('Trámite reactivado.'); }
-    else { if (!confirm('¿Marcar como terminado?')) return; t.terminado = true; t.terminadoEn = new Date().toISOString(); showToast('Trámite terminado.'); }
-    saveAll(); renderAll(); closeDetail();
-  });
 
   // Filtros
-  ['filterAbogado','filterModulo','filterResponsable','filterEtapa'].forEach(id => {
-    document.getElementById(id).addEventListener('change', renderAll);
+  ['filterTipo','filterAbogado','filterModulo','filterResponsable','filterEtapa'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', renderAll);
   });
   document.getElementById('searchInput').addEventListener('input', renderAll);
   document.getElementById('clearFilters').addEventListener('click', () => {
-    ['filterAbogado','filterModulo','filterResponsable','filterEtapa'].forEach(id => document.getElementById(id).value = '');
+    ['filterTipo','filterAbogado','filterModulo','filterResponsable','filterEtapa'].forEach(id => {
+      const el = document.getElementById(id); if(el) el.value = '';
+    });
     document.getElementById('searchInput').value = '';
     renderAll();
   });
@@ -1152,7 +1269,7 @@ function init() {
 
   // Config: modo detalle
   document.getElementById('modeExpand').addEventListener('click', () => setDetailMode('expand'));
-  document.getElementById('modeModal').addEventListener('click', () => setDetailMode('modal'));
+  document.getElementById('modeModal').addEventListener('click',  () => setDetailMode('modal'));
 
   // Config: colores abogados
   document.getElementById('colorAbogado1').addEventListener('input', () => updateColorPreview(1));
@@ -1202,26 +1319,25 @@ function init() {
   document.getElementById('clearAllBtn').addEventListener('click', () => {
     if (confirm('¿Borrar TODOS los datos? Esta acción no se puede deshacer.')) {
       if (confirm('¿Estás seguro? Se perderán todos los trámites.')) {
-        [KEYS.tramites, KEYS.order, KEYS.config].forEach(k => localStorage.removeItem(k));
+        Object.values(KEYS).forEach(k => localStorage.removeItem(k));
         STATE.tramites = []; STATE.order = [];
         STATE.config = { ...DEFAULT_CONFIG, modulos: [...DEFAULT_CONFIG.modulos] };
         applyCssColors(); applyTheme('claro');
         populateModuloSelects(); updateAbogadoNames();
-        const ds2 = document.getElementById('sortSelect'); if(ds2) ds2.value='vencimiento';
-        const ms2 = document.getElementById('sortSelectMob'); if(ms2) ms2.value='vencimiento';
+        const ds2 = document.getElementById('sortSelect'); if(ds2) ds2.value = 'vencimiento';
+        const ms2 = document.getElementById('sortSelectMob'); if(ms2) ms2.value = 'vencimiento';
         renderConfig(); renderAll(); showToast('Datos borrados.');
       }
     }
   });
 
-  // Teclado
+  // Teclado ESC
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') {
-      if (document.getElementById('detailOverlay').classList.contains('open')) closeDetail();
-      else if (document.getElementById('modalOverlay').classList.contains('open')) closeModal();
-      else if (document.getElementById('mobSheet').classList.contains('open')) closeMobSheet();
-      else closeAllExpands();
-    }
+    if (e.key !== 'Escape') return;
+    if (document.getElementById('detailOverlay').classList.contains('open')) closeDetail();
+    else if (document.getElementById('modalOverlay').classList.contains('open')) closeModal();
+    else if (document.getElementById('mobSheet').classList.contains('open')) closeMobSheet();
+    else closeAllExpands();
   });
 }
 
