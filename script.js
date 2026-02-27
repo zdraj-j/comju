@@ -194,16 +194,19 @@ function loadAll() {
 // ============================================================
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
+// today() y tomorrow() con caché de 1 segundo para evitar llamadas repetidas
+let _todayCache = '', _tomorrowCache = '', _cacheTs = 0;
 function today() {
+  const now = Date.now();
+  if (now - _cacheTs < 1000) return _todayCache;
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  _todayCache    = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const t2 = new Date(d); t2.setDate(t2.getDate() + 1);
+  _tomorrowCache = `${t2.getFullYear()}-${String(t2.getMonth()+1).padStart(2,'0')}-${String(t2.getDate()).padStart(2,'0')}`;
+  _cacheTs = now;
+  return _todayCache;
 }
-
-function tomorrow() {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
+function tomorrow() { today(); return _tomorrowCache; }
 
 function formatDate(s) {
   if (!s) return '—';
@@ -411,13 +414,10 @@ function buildRespOptions(tipoTramite, abogadoKey, selectedValue) {
 // ============================================================
 function setColumns(n) {
   STATE.config.columns = n;
-  ['tramiteList','todayList','finishedList'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.className = `tramite-list cols-${n}`;
-  });
   document.querySelectorAll('.col-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.cols) === n));
   document.querySelectorAll('.mob-col-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.cols) === n));
   saveAll();
+  renderAll();
 }
 
 function setDetailMode(mode) {
@@ -846,7 +846,6 @@ function openDetailExpand(t) {
   closeAllExpands();
   if (alreadyOpen) return;
 
-  wrapper.classList.add('expanded');
   wrapper.querySelector('.tramite-card').classList.add('card-open');
 
   let panel = wrapper.querySelector('.expand-panel');
@@ -889,7 +888,6 @@ function openDetailExpand(t) {
 function closeAllExpands() {
   document.querySelectorAll('.expand-panel.open').forEach(p => p.classList.remove('open'));
   document.querySelectorAll('.tramite-card.card-open').forEach(c => c.classList.remove('card-open'));
-  document.querySelectorAll('.card-wrapper.expanded').forEach(w => w.classList.remove('expanded'));
   currentDetailId = null;
 }
 
@@ -1128,7 +1126,19 @@ function renderList(container, emptyEl, list) {
   container.innerHTML = '';
   if (!list.length) { emptyEl.classList.add('visible'); return; }
   emptyEl.classList.remove('visible');
-  list.forEach(t => container.appendChild(buildCard(t)));
+
+  const cols = STATE.config.columns || 1;
+  // Crear columnas independientes — expand en una columna no mueve las otras
+  const colDivs = Array.from({ length: cols }, () => {
+    const col = document.createElement('div');
+    col.className = 'tramite-col';
+    container.appendChild(col);
+    return col;
+  });
+
+  list.forEach((t, i) => {
+    colDivs[i % cols].appendChild(buildCard(t));
+  });
 }
 
 function renderAll() {
@@ -1145,7 +1155,6 @@ function renderAll() {
   badge.classList.toggle('hidden', urgentes.length === 0);
 
   renderList(document.getElementById('finishedList'), document.getElementById('emptyFinished'), STATE.tramites.filter(t => t.terminado));
-  setColumns(STATE.config.columns);
 }
 
 // ============================================================
@@ -1325,7 +1334,14 @@ function openModal(tramite = null) {
   document.getElementById('fNumero').value           = tramite?.numero || '';
   document.getElementById('fDescripcion').value      = tramite?.descripcion || '';
   document.getElementById('fModulo').value           = tramite?.modulo || STATE.config.modulos[0]?.sigla || '';
-  document.getElementById('fAbogado').value          = tramite?.abogado || 'abogado1';
+  const abogadoSelect = document.getElementById('fAbogado');
+  const abKey = tramite?.abogado || (STATE.config.abogados[0]?.key || 'abogado1');
+  // Ensure the option exists in the select before setting value
+  if ([...abogadoSelect.options].some(o => o.value === abKey)) {
+    abogadoSelect.value = abKey;
+  } else if (abogadoSelect.options.length > 0) {
+    abogadoSelect.value = abogadoSelect.options[0].value;
+  }
   document.getElementById('fFechaVencimiento').value = tramite?.fechaVencimiento || '';
 
   const tipo = tramite?.tipo || 'abogado';
@@ -1358,8 +1374,12 @@ function saveTramite() {
   const abogado = tipo === 'abogado' ? document.getElementById('fAbogado').value : null;
   const venc    = document.getElementById('fFechaVencimiento').value;
 
-  if (!numero || !desc || !modulo || !venc) {
-    showToast('Completa: número, descripción, módulo y fecha de vencimiento.'); return;
+  // Fecha de vencimiento es requerida solo para trámites de abogado
+  if (!numero || !desc || !modulo) {
+    showToast('Completa: número, descripción y módulo.'); return;
+  }
+  if (tipo === 'abogado' && !venc) {
+    showToast('Completa la fecha de vencimiento.'); return;
   }
 
   const tareaDesc  = document.getElementById('fTareaDesc').value.trim();
@@ -1376,13 +1396,12 @@ function saveTramite() {
 
   if (isEditing) {
     const t = getById(editingId);
-    if (t) {
-      pushHistory(`Editar trámite #${numero}`);
-      Object.assign(t, { numero, descripcion: desc, modulo, tipo, fechaVencimiento: venc });
-      if (tipo === 'abogado') t.abogado = abogado; else delete t.abogado;
-      if (tareaInicial.length) t.seguimiento.unshift(...tareaInicial);
-      if (notaInicial.length)  t.notas.push(...notaInicial);
-    }
+    if (!t) { showToast('Error: no se encontró el trámite a editar.'); return; }
+    pushHistory(`Editar trámite #${numero}`);
+    Object.assign(t, { numero, descripcion: desc, modulo, tipo, fechaVencimiento: venc });
+    if (tipo === 'abogado') t.abogado = abogado; else delete t.abogado;
+    if (tareaInicial.length) t.seguimiento.unshift(...tareaInicial);
+    if (notaInicial.length)  t.notas.push(...notaInicial);
     showToast('Trámite actualizado.');
   } else {
     pushHistory(`Crear trámite #${numero}`);
@@ -1656,13 +1675,17 @@ function init() {
   applyTheme(STATE.config.theme || 'claro');
   populateModuloSelects();
   updateAbogadoNames();
-  setColumns(STATE.config.columns || 1);
-  setDetailMode(STATE.config.detailMode || 'expand');
 
   const sortVal = STATE.config.sortBy || 'vencimiento';
   const ds = document.getElementById('sortSelect'); if(ds) ds.value = sortVal;
   const ms = document.getElementById('sortSelectMob'); if(ms) ms.value = sortVal;
 
+  // Inicializar botones de columnas sin renderizar todavía
+  const initCols = STATE.config.columns || 1;
+  document.querySelectorAll('.col-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.cols) === initCols));
+  document.querySelectorAll('.mob-col-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.cols) === initCols));
+
+  setDetailMode(STATE.config.detailMode || 'expand');
   if (isMobile()) closeSidebar();
   renderAll();
   setupContainerDrop(document.getElementById('tramiteList'));
@@ -1730,26 +1753,26 @@ function init() {
   document.getElementById('detailClose').addEventListener('click', closeDetail);
   document.getElementById('detailOverlay').addEventListener('click', e => { if (e.target === document.getElementById('detailOverlay')) closeDetail(); });
   document.getElementById('editDetailBtn').addEventListener('click', () => {
-    const t = getById(currentDetailId); closeDetail(); openModal(t);
+    const id = currentDetailId;
+    const t = getById(id);
+    if (!t) return;
+    closeDetail();
+    // Pequeña pausa para que el modal de detalle termine de cerrarse
+    setTimeout(() => openModal(t), 50);
   });
-  document.getElementById('deleteDetailBtn').addEventListener('click', async () => {
+  document.getElementById('deleteDetailBtn').addEventListener('click', () => {
     const idToDelete = currentDetailId;
     if (!idToDelete) return;
-    // confirmOverlay tiene z-index 9999 — se muestra encima de cualquier overlay
-    // Temporalmente desactivamos pointer-events del detailOverlay para que los clicks
-    // lleguen al confirmOverlay correctamente
-    const detailOv = document.getElementById('detailOverlay');
-    detailOv.style.pointerEvents = 'none';
-    const ok = await showConfirm('¿Eliminar este trámite? Esta acción no se puede deshacer.');
-    detailOv.style.pointerEvents = '';
-    if (ok) {
-      const toDel = getById(idToDelete);
+    const toDel = getById(idToDelete);
+    // Cerramos el modal primero y usamos confirm nativo — más robusto que el diálogo propio
+    closeDetail();
+    setTimeout(() => {
+      if (!window.confirm(`¿Eliminar el trámite "${toDel?.descripcion || ''}"?\nEsta acción no se puede deshacer.`)) return;
       pushHistory(`Eliminar trámite #${toDel?.numero || idToDelete}`);
-      closeDetail();
       STATE.tramites = STATE.tramites.filter(t => t.id !== idToDelete);
       STATE.order    = STATE.order.filter(id => id !== idToDelete);
       saveAll(); renderAll(); showToast('Trámite eliminado.');
-    }
+    }, 80);
   });
 
   // Filtros
