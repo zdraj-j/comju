@@ -99,11 +99,29 @@ function pushHistory(label) {
 
 function undo() {
   if (!_history.length) { showToast('No hay acciones para deshacer.'); return; }
+
+  // Guardar qué trámite está actualmente abierto para reabrirlo después
+  const openId = currentDetailId;
+  const isModal = document.getElementById('detailOverlay').classList.contains('open');
+
   _undoing = true;
   const snap = _history.pop();
   STATE.tramites = snap.tramites;
   STATE.order    = snap.order;
-  saveAll(); renderAll();
+  saveAll();
+
+  // Re-renderizar sin cerrar nada
+  renderAll();
+
+  // Si había un detalle abierto, reabrirlo (el trámite puede haber cambiado)
+  if (openId) {
+    const t = getById(openId);
+    if (t) {
+      if (isModal) openDetailModal(t);
+      else openDetailExpand(t);
+    }
+  }
+
   showToast(`↩ Deshecho: ${snap.label}`);
   _undoing = false;
 }
@@ -687,7 +705,7 @@ function renderActividadesIn(t, listEl, container, expandWrapper) {
         </label>
       </div>
       <div class="actividad-info">
-        <div class="actividad-desc ${isDone ? 'done' : ''}">${escapeHtml(act.descripcion)}</div>
+        <div class="actividad-desc ${isDone ? 'done' : ''}" title="Doble clic para editar">${escapeHtml(act.descripcion)}</div>
         <div class="actividad-meta">
           <input type="date" value="${act.fecha||''}" />
           ${act.responsable ? `<span class="actividad-resp">${abogadoName(act.responsable)}</span>` : ''}
@@ -695,6 +713,32 @@ function renderActividadesIn(t, listEl, container, expandWrapper) {
         </div>
       </div>
       <button class="actividad-delete" title="Eliminar">✕</button>`;
+
+    // Doble clic en descripción → edición inline
+    const descEl = div.querySelector('.actividad-desc');
+    descEl.addEventListener('dblclick', () => {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = act.descripcion;
+      input.className = 'actividad-desc-edit';
+      descEl.replaceWith(input);
+      input.focus();
+      input.select();
+      const save = () => {
+        const val = sentenceCase(input.value.trim());
+        if (val && val !== act.descripcion) {
+          pushHistory('Editar descripción de tarea');
+          t.seguimiento[i].descripcion = val;
+          saveAll(); refreshCardOnly(t);
+        }
+        renderActividadesIn(t, listEl, container, expandWrapper);
+      };
+      input.addEventListener('blur', save);
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { renderActividadesIn(t, listEl, container, expandWrapper); }
+      });
+    });
 
     div.querySelector('input[type="checkbox"]').addEventListener('change', e => {
       pushHistory(e.target.checked ? 'Marcar tarea realizada' : 'Desmarcar tarea');
@@ -730,9 +774,37 @@ function renderNotasIn(t, listEl) {
     const div = document.createElement('div');
     div.className = 'nota-item';
     div.innerHTML = `
-      <div class="nota-text">${escapeHtml(nota.texto)}</div>
+      <div class="nota-text" title="Doble clic para editar">${escapeHtml(nota.texto)}</div>
       <div class="nota-fecha">${formatDatetime(nota.fecha)}</div>
       <button class="nota-delete">✕</button>`;
+
+    // Doble clic en texto → edición inline
+    const textoEl = div.querySelector('.nota-text');
+    textoEl.addEventListener('dblclick', () => {
+      const ta = document.createElement('textarea');
+      ta.value = nota.texto;
+      ta.className = 'nota-text-edit';
+      ta.rows = 3;
+      textoEl.replaceWith(ta);
+      ta.focus();
+      ta.select();
+      const save = () => {
+        const val = sentenceCase(ta.value.trim());
+        if (val && val !== nota.texto) {
+          pushHistory('Editar texto de nota');
+          t.notas[idx].texto = val;
+          saveAll();
+        }
+        renderNotasIn(t, listEl);
+      };
+      ta.addEventListener('blur', save);
+      ta.addEventListener('keydown', e => {
+        if (e.key === 'Escape') { renderNotasIn(t, listEl); }
+        // Enter normal (permite saltos de línea), Ctrl+Enter para guardar
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ta.blur(); }
+      });
+    });
+
     div.querySelector('.nota-delete').addEventListener('click', () => {
       if (confirm('¿Eliminar esta nota?')) { pushHistory('Eliminar nota'); t.notas.splice(idx, 1); saveAll(); renderNotasIn(t, listEl); }
     });
@@ -774,6 +846,7 @@ function openDetailExpand(t) {
   closeAllExpands();
   if (alreadyOpen) return;
 
+  wrapper.classList.add('expanded');
   wrapper.querySelector('.tramite-card').classList.add('card-open');
 
   let panel = wrapper.querySelector('.expand-panel');
@@ -810,26 +883,13 @@ function openDetailExpand(t) {
     wrapper.appendChild(panel);
   }
 
-  // En multi-columna: posicionar el panel como overlay absoluto en el list
-  // para no desplazar las otras tarjetas
-  const list = wrapper.closest('.tramite-list');
-  const cols = STATE.config.columns || 1;
-  if (cols > 1 && list) {
-    const wrapperRect = wrapper.getBoundingClientRect();
-    const listRect = list.getBoundingClientRect();
-    // top = posición del wrapper dentro del list + su altura (aparece debajo del card)
-    const topRelToList = wrapperRect.bottom - listRect.top + list.scrollTop;
-    panel.style.top = topRelToList + 'px';
-  } else {
-    panel.style.top = '';
-  }
-
   requestAnimationFrame(() => requestAnimationFrame(() => panel.classList.add('open')));
 }
 
 function closeAllExpands() {
   document.querySelectorAll('.expand-panel.open').forEach(p => p.classList.remove('open'));
   document.querySelectorAll('.tramite-card.card-open').forEach(c => c.classList.remove('card-open'));
+  document.querySelectorAll('.card-wrapper.expanded').forEach(w => w.classList.remove('expanded'));
   currentDetailId = null;
 }
 
