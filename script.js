@@ -1,23 +1,28 @@
 /**
- * JuriTask — Script Principal v5
- * Cambios v5:
- *  1. Nombre cambiado de LexGestión a JuriTask
- *  2. Trámites propios (sin abogado, solo check terminar)
- *  3. Próxima acción fusionada con seguimiento (responsable en cada tarea)
- *  4. Nueva tarea oculta en modal y en tarjetas (botón la muestra)
- *  5. Check "terminar" en tarjeta (tercer check, color verde)
- *  6. Fecha de vencimiento oculta en tarjetas con cumplimiento marcado
- *  7. Hoy/Vencidos: considera fechas de seguimiento y vencimiento
+ * JuriTask — Script Principal v6
+ * Ajustes v6:
+ *  1.  Reporte del día (PDF/print, filtro por abogado)
+ *  2.  Importar/Exportar movidos a Configuración
+ *  3.  Nota inicial en modal de nuevo trámite
+ *  4.  Cumplimiento: oculta sección vencimiento en panel, no borra la fecha
+ *  5.  Cambiar vista limpia barra de búsqueda
+ *  6.  "Auxiliar" y "Propio" unificados como "Yo mismo"
+ *  7.  Botón eliminar funciona en modo modal
+ *  8.  Nuevo trámite: focus automático en campo número
+ *  9.  Nueva tarea: focus automático en campo descripción
+ *  10. "Pronto" = mañana solamente (no semana)
+ *  11. Marcar tarea realizada no cierra el panel expandido
+ *  12. Al marcar cumplimiento: crea tarea "1er req" para misma semana siguiente
  */
 
 // ============================================================
 // TEMAS
 // ============================================================
 const THEMES = [
-  { id: 'claro',    nombre: 'Claro',    swatches: ['#f4f5f7','#ffffff','#3b5bdb','#1a1d23'] },
-  { id: 'oscuro',   nombre: 'Oscuro',   swatches: ['#0f1117','#1a1d27','#6e8efb','#e8eaf0'] },
-  { id: 'sepia',    nombre: 'Sepia',    swatches: ['#f5f0e8','#fdf8f0','#8b6c2e','#2c2416'] },
-  { id: 'pizarra',  nombre: 'Pizarra',  swatches: ['#1e2533','#26304a','#58a6f0','#d4daf0'] },
+  { id: 'claro',   nombre: 'Claro',   swatches: ['#f4f5f7','#ffffff','#3b5bdb','#1a1d23'] },
+  { id: 'oscuro',  nombre: 'Oscuro',  swatches: ['#0f1117','#1a1d27','#6e8efb','#e8eaf0'] },
+  { id: 'sepia',   nombre: 'Sepia',   swatches: ['#f5f0e8','#fdf8f0','#8b6c2e','#2c2416'] },
+  { id: 'pizarra', nombre: 'Pizarra', swatches: ['#1e2533','#26304a','#58a6f0','#d4daf0'] },
 ];
 
 function applyTheme(id) {
@@ -53,10 +58,13 @@ const DEFAULT_CONFIG = {
   detailMode: 'expand',
   sortBy: 'vencimiento',
   theme: 'claro',
+  autoReq: true,          // Crear tarea automática al marcar cumplimiento
+  autoReqTexto: '1er req',
+  autoReqDias: 7,
 };
 
 // ============================================================
-// ESTADO GLOBAL
+// ESTADO
 // ============================================================
 const STATE = {
   tramites: [],
@@ -83,8 +91,29 @@ function saveAll() {
   localStorage.setItem(KEYS.config,   JSON.stringify(STATE.config));
 }
 
+function migrateTramite(t) {
+  if (!t.tipo) t.tipo = 'abogado';
+  if (!t.seguimiento) t.seguimiento = [];
+  if (!t.notas) t.notas = [];
+  if (!t.gestion) t.gestion = { analisis: false, cumplimiento: false };
+  // Unificar "auxiliar"/"propio" → "yo"
+  t.seguimiento.forEach(s => {
+    if (s.responsable === 'auxiliar' || s.responsable === 'propio') s.responsable = 'yo';
+  });
+  // Migrar proximaAccion
+  if (t.proximaAccion && t.proximaAccion.descripcion) {
+    const resp = t.proximaAccion.responsable;
+    t.seguimiento.unshift({
+      descripcion: t.proximaAccion.descripcion,
+      fecha: t.proximaAccion.fecha || '',
+      responsable: (resp === 'auxiliar' || resp === 'propio') ? 'yo' : (resp || 'yo'),
+      estado: 'pendiente',
+    });
+    delete t.proximaAccion;
+  }
+}
+
 function loadAll() {
-  // Migración desde claves antiguas de LexGestión
   const OLD = { tramites:'lexgestion_tramites', order:'lexgestion_order', config:'lexgestion_config' };
   try {
     const t = localStorage.getItem(KEYS.tramites) || localStorage.getItem(OLD.tramites);
@@ -93,26 +122,7 @@ function loadAll() {
     if (o) STATE.order = JSON.parse(o);
     const c = localStorage.getItem(KEYS.config) || localStorage.getItem(OLD.config);
     if (c) STATE.config = Object.assign({ ...DEFAULT_CONFIG, modulos: [...DEFAULT_CONFIG.modulos] }, JSON.parse(c));
-    // Migración: proximaAccion → primera tarea de seguimiento si no existe
-    STATE.tramites.forEach(t => {
-      if (!t.tipo) t.tipo = 'abogado'; // retrocompatibilidad
-      if (!t.seguimiento) t.seguimiento = [];
-      if (!t.notas) t.notas = [];
-      if (!t.gestion) t.gestion = { analisis: false, cumplimiento: false };
-      // Si tenía proximaAccion y no tiene tareas de seguimiento equivalente, migrarla
-      if (t.proximaAccion && t.proximaAccion.descripcion) {
-        const yaExiste = t.seguimiento.some(s => s.descripcion === t.proximaAccion.descripcion && s.fecha === t.proximaAccion.fecha);
-        if (!yaExiste) {
-          t.seguimiento.unshift({
-            descripcion: t.proximaAccion.descripcion,
-            fecha: t.proximaAccion.fecha || '',
-            responsable: t.proximaAccion.responsable || (t.abogado || 'propio'),
-            estado: 'pendiente',
-          });
-        }
-        delete t.proximaAccion;
-      }
-    });
+    STATE.tramites.forEach(migrateTramite);
   } catch (e) { console.error('Error cargando datos:', e); }
 }
 
@@ -126,33 +136,36 @@ function today() {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
+function tomorrow() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
 function formatDate(s) {
   if (!s) return '—';
-  const [y,m,d] = s.split('-');
+  const [y, m, d] = s.split('-');
   return `${d}/${m}/${y}`;
 }
 
+/** Clase CSS para coloreado de fechas:
+ *  overdue = pasada, today = hoy, soon = MAÑANA exactamente, upcoming = resto */
 function dateClass(s) {
   if (!s) return '';
-  const t = today();
-  if (s < t) return 'overdue';
-  if (s === t) return 'today';
+  const hoy = today();
+  const man = tomorrow();
+  if (s < hoy) return 'overdue';
+  if (s === hoy) return 'today';
+  if (s === man) return 'soon';
   return 'upcoming';
 }
 
 function vencClass(s, tramite) {
   if (!s) return '';
-  // Con cumplimiento marcado, no mostrar alerta
   if (tramite && tramite.gestion && tramite.gestion.cumplimiento) return 'upcoming';
-  const t = today();
-  if (s < t) return 'overdue';
-  if (s === t) return 'today';
-  const diff = Math.ceil((new Date(s) - new Date(t)) / 86400000);
-  if (diff <= 7) return 'soon';
-  return 'upcoming';
+  return dateClass(s);
 }
 
-/** Fecha de la tarea pendiente más urgente del trámite */
 function proximaFechaSeguimiento(t) {
   const pendientes = (t.seguimiento || []).filter(s => s.estado === 'pendiente' && s.fecha);
   if (!pendientes.length) return null;
@@ -162,21 +175,20 @@ function proximaFechaSeguimiento(t) {
 function abogadoName(key) {
   if (key === 'abogado1') return STATE.config.abogado1;
   if (key === 'abogado2') return STATE.config.abogado2;
-  if (key === 'propio')   return 'Propio';
-  return 'Auxiliar';
+  // "yo", "auxiliar", "propio" → todos son "Yo mismo"
+  return 'Yo mismo';
 }
 
 function abogadoColor(key) {
   if (key === 'abogado1') return STATE.config.colorAbogado1 || '#15803d';
   if (key === 'abogado2') return STATE.config.colorAbogado2 || '#1d4ed8';
-  if (key === 'propio')   return '#9333ea';
-  return '#6b7280';
+  return '#9333ea';
 }
 
 function hexToRgba(hex, alpha) {
-  const r = parseInt(hex.slice(1,3),16);
-  const g = parseInt(hex.slice(3,5),16);
-  const b = parseInt(hex.slice(5,7),16);
+  const r = parseInt(hex.slice(1,3), 16);
+  const g = parseInt(hex.slice(3,5), 16);
+  const b = parseInt(hex.slice(5,7), 16);
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
@@ -186,14 +198,11 @@ function computeEtapa(t) {
 
 function esPropio(t) { return t.tipo === 'propio'; }
 
-/** ¿Aparece este trámite en la vista Hoy/Vencidos? */
 function esHoyOVencido(t) {
   const hoy = today();
-  // Vencimiento hoy o pasado (si cumplimiento no marcado)
   if (t.fechaVencimiento && !(t.gestion && t.gestion.cumplimiento)) {
     if (t.fechaVencimiento <= hoy) return true;
   }
-  // Alguna tarea pendiente de seguimiento hoy o pasada
   const pf = proximaFechaSeguimiento(t);
   if (pf && pf <= hoy) return true;
   return false;
@@ -216,6 +225,23 @@ function applyCssColors() {
 }
 
 // ============================================================
+// CONFIRM DIALOG PROPIO (evita problemas con backdrop-filter)
+// ============================================================
+let _confirmResolve = null;
+function showConfirm(msg) {
+  return new Promise(resolve => {
+    _confirmResolve = resolve;
+    document.getElementById('confirmMsg').textContent = msg;
+    document.getElementById('confirmOverlay').classList.add('open');
+  });
+}
+
+function _confirmClose(result) {
+  document.getElementById('confirmOverlay').classList.remove('open');
+  if (_confirmResolve) { _confirmResolve(result); _confirmResolve = null; }
+}
+
+// ============================================================
 // TOAST
 // ============================================================
 const toastEl = document.getElementById('toast');
@@ -231,7 +257,7 @@ function showToast(msg) {
 // SELECTS
 // ============================================================
 function populateModuloSelects() {
-  ['filterModulo','fModulo'].forEach(id => {
+  ['filterModulo', 'fModulo'].forEach(id => {
     const sel = document.getElementById(id);
     if (!sel) return;
     const cur = sel.value;
@@ -249,27 +275,25 @@ function updateAbogadoNames() {
   const n1 = STATE.config.abogado1, n2 = STATE.config.abogado2;
   [['filterAbogado1Opt',n1],['filterAbogado2Opt',n2],
    ['filterResp1Opt',n1],['filterResp2Opt',n2],
-   ['fAbog1Opt',n1],['fAbog2Opt',n2]
-  ].forEach(([id,val]) => { const el = document.getElementById(id); if (el) el.textContent = val; });
+   ['fAbog1Opt',n1],['fAbog2Opt',n2],
+   ['reportBtn1',n1],['reportBtn2',n2]
+  ].forEach(([elId, val]) => { const el = document.getElementById(elId); if (el) el.textContent = val; });
 }
 
-/** Opciones de responsable para formularios de tarea según tipo de trámite */
+/** Opciones de responsable: abogadoX + "Yo mismo" */
 function buildRespOptions(tipoTramite, abogadoKey, selectedValue) {
   const opts = [];
   if (tipoTramite === 'abogado') {
     opts.push({ value: abogadoKey, label: abogadoName(abogadoKey) });
-    opts.push({ value: 'auxiliar', label: 'Auxiliar' });
-  } else {
-    opts.push({ value: 'propio', label: 'Propio' });
-    opts.push({ value: 'auxiliar', label: 'Auxiliar' });
   }
+  opts.push({ value: 'yo', label: 'Yo mismo' });
   return opts.map(o =>
     `<option value="${o.value}" ${o.value === selectedValue ? 'selected' : ''}>${o.label}</option>`
   ).join('');
 }
 
 // ============================================================
-// COLUMNAS
+// COLUMNAS / DETALLE / SORT
 // ============================================================
 function setColumns(n) {
   STATE.config.columns = n;
@@ -282,9 +306,6 @@ function setColumns(n) {
   saveAll();
 }
 
-// ============================================================
-// MODO DETALLE
-// ============================================================
 function setDetailMode(mode) {
   STATE.config.detailMode = mode;
   document.getElementById('modeExpand').classList.toggle('active', mode === 'expand');
@@ -292,9 +313,6 @@ function setDetailMode(mode) {
   saveAll();
 }
 
-// ============================================================
-// ORDENAMIENTO
-// ============================================================
 function setSortBy(val) {
   STATE.config.sortBy = val;
   const ds = document.getElementById('sortSelect'); if(ds) ds.value = val;
@@ -307,9 +325,9 @@ function sortActives(list) {
   const sortBy = STATE.config.sortBy || 'vencimiento';
   const FAR = '9999-99-99';
   return [...list].sort((a, b) => {
-    let cmp = 0;
     const pfa = proximaFechaSeguimiento(a) || FAR;
     const pfb = proximaFechaSeguimiento(b) || FAR;
+    let cmp = 0;
     if (sortBy === 'vencimiento') {
       cmp = (a.fechaVencimiento||FAR).localeCompare(b.fechaVencimiento||FAR);
     } else if (sortBy === 'seguimiento') {
@@ -319,7 +337,7 @@ function sortActives(list) {
       const mb = [b.fechaVencimiento, pfb].filter(x=>x!==FAR).sort()[0] || FAR;
       cmp = ma.localeCompare(mb);
     } else if (sortBy === 'abogado') {
-      cmp = abogadoName(a.abogado||'propio').localeCompare(abogadoName(b.abogado||'propio'));
+      cmp = abogadoName(a.abogado||'yo').localeCompare(abogadoName(b.abogado||'yo'));
     } else if (sortBy === 'numero') {
       cmp = (parseInt(a.numero)||0) - (parseInt(b.numero)||0);
     }
@@ -329,7 +347,28 @@ function sortActives(list) {
 }
 
 // ============================================================
-// CONTENIDO DE DETALLE
+// TAREA AUTOMÁTICA AL MARCAR CUMPLIMIENTO
+// ============================================================
+function nDaysFromToday(n) {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function crearTareaRequerimiento(t) {
+  if (!STATE.config.autoReq) return;
+  const dias  = parseInt(STATE.config.autoReqDias) || 7;
+  const texto = (STATE.config.autoReqTexto || '1er req').trim();
+  const fecha = nDaysFromToday(dias);
+  const yaExiste = t.seguimiento.some(s => s.descripcion === texto && s.fecha === fecha && s.estado === 'pendiente');
+  if (!yaExiste) {
+    const resp = esPropio(t) ? 'yo' : t.abogado;
+    t.seguimiento.unshift({ descripcion: texto, fecha, responsable: resp, estado: 'pendiente' });
+  }
+}
+
+// ============================================================
+// CONTENIDO DE DETALLE (panel expandido y modal)
 // ============================================================
 function buildDetailContent(t) {
   const esP = esPropio(t);
@@ -337,10 +376,8 @@ function buildDetailContent(t) {
   const etapaLabel = etapa === 'seguimiento' ? 'Seguimiento' : 'Gestión';
   const etapaCls   = etapa === 'seguimiento' ? 'seguimiento' : '';
   const p = `det_${t.id}`;
-  const vcls = vencClass(t.fechaVencimiento, t);
-  const showVenc = t.fechaVencimiento && !(t.gestion && t.gestion.cumplimiento);
+  const hiddenVenc = t.gestion && t.gestion.cumplimiento;
 
-  // Sección gestión (solo trámites de abogado)
   const gestionHtml = esP ? '' : `
     <div class="detail-section">
       <h3>Gestión</h3>
@@ -356,29 +393,6 @@ function buildDetailContent(t) {
       </div>
     </div>`;
 
-  // Vencimiento
-  const vencHtml = showVenc ? `
-    <div class="detail-section">
-      <h3>Fecha de vencimiento</h3>
-      <div class="form-grid">
-        <div class="form-group">
-          <label>Fecha</label>
-          <input type="date" id="${p}_vencimiento" value="${t.fechaVencimiento||''}" />
-        </div>
-      </div>
-      <button class="btn-small" id="${p}_saveVenc" style="margin-top:10px">Guardar fecha</button>
-    </div>` : `
-    <div class="detail-section">
-      <h3>Fecha de vencimiento</h3>
-      <div class="form-grid">
-        <div class="form-group">
-          <label>Fecha</label>
-          <input type="date" id="${p}_vencimiento" value="${t.fechaVencimiento||''}" />
-        </div>
-      </div>
-      <button class="btn-small" id="${p}_saveVenc" style="margin-top:10px">Guardar fecha</button>
-    </div>`;
-
   return `
     ${gestionHtml}
     <div class="detail-section">
@@ -391,7 +405,7 @@ function buildDetailContent(t) {
         <input type="text" id="${p}_newActDesc" placeholder="¿Qué se debe hacer?" />
         <div class="add-actividad-form-row">
           <input type="date" id="${p}_newActFecha" />
-          <select id="${p}_newActResp">${buildRespOptions(t.tipo || 'abogado', t.abogado || 'abogado1', t.abogado || 'propio')}</select>
+          <select id="${p}_newActResp">${buildRespOptions(t.tipo || 'abogado', t.abogado || 'abogado1', t.abogado || 'yo')}</select>
         </div>
         <div class="add-actividad-btns">
           <button class="btn-small" id="${p}_addAct">+ Agregar</button>
@@ -399,7 +413,16 @@ function buildDetailContent(t) {
         </div>
       </div>
     </div>
-    ${vencHtml}
+    <div class="detail-section detail-vencimiento-section${hiddenVenc ? ' hidden-venc' : ''}" id="${p}_vencSection">
+      <h3>Fecha de vencimiento</h3>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Fecha</label>
+          <input type="date" id="${p}_vencimiento" value="${t.fechaVencimiento||''}" />
+        </div>
+      </div>
+      <button class="btn-small" id="${p}_saveVenc" style="margin-top:10px">Guardar fecha</button>
+    </div>
     <div class="detail-section">
       <h3>Notas</h3>
       <div id="${p}_notas"></div>
@@ -411,31 +434,56 @@ function buildDetailContent(t) {
   `;
 }
 
-function bindDetailContent(t, container) {
+function bindDetailContent(t, container, expandWrapper) {
   const p = `det_${t.id}`;
   const esP = esPropio(t);
 
   if (!esP) {
     container.querySelector(`#${p}_analisis`).addEventListener('change', e => {
-      t.gestion.analisis = e.target.checked; saveAll(); renderAll();
+      t.gestion.analisis = e.target.checked;
+      saveAll();
+      // Re-render solo la card (no cierra el panel)
+      refreshCardOnly(t);
     });
+
     container.querySelector(`#${p}_cumplimiento`).addEventListener('change', e => {
       t.gestion.cumplimiento = e.target.checked;
+      // Actualizar badge etapa
       const badge = container.querySelector(`#${p}_etapabadge`);
       const etapa = computeEtapa(t);
-      if (badge) { badge.textContent = etapa==='seguimiento'?'Seguimiento':'Gestión'; badge.className='etapa-badge'+(etapa==='seguimiento'?' seguimiento':''); }
-      saveAll(); renderAll();
+      if (badge) {
+        badge.textContent = etapa==='seguimiento' ? 'Seguimiento' : 'Gestión';
+        badge.className = 'etapa-badge' + (etapa==='seguimiento' ? ' seguimiento' : '');
+      }
+      // Mostrar/ocultar sección vencimiento SIN borrar la fecha
+      const vencSec = container.querySelector(`#${p}_vencSection`);
+      if (vencSec) vencSec.classList.toggle('hidden-venc', e.target.checked);
+
+      // Ajuste 12: crear tarea "1er req" al marcar cumplimiento
+      if (e.target.checked) {
+        crearTareaRequerimiento(t);
+        // Re-renderizar lista de actividades
+        renderActividadesIn(t, container.querySelector(`#${p}_actividades`), container, expandWrapper);
+        showToast('✓ Cumplimiento marcado. Tarea "1er req" creada.');
+      }
+
+      saveAll();
+      refreshCardOnly(t);
     });
   }
 
   // Seguimiento
-  renderActividadesIn(t, container.querySelector(`#${p}_actividades`));
+  renderActividadesIn(t, container.querySelector(`#${p}_actividades`), container, expandWrapper);
 
   const btnNueva = container.querySelector(`#${p}_btnNuevaTarea`);
   const formNueva = container.querySelector(`#${p}_formNuevaTarea`);
   btnNueva.addEventListener('click', () => {
     const open = formNueva.style.display !== 'none';
     formNueva.style.display = open ? 'none' : 'block';
+    if (!open) {
+      // Ajuste 9: focus en campo descripción
+      setTimeout(() => container.querySelector(`#${p}_newActDesc`)?.focus(), 60);
+    }
   });
   container.querySelector(`#${p}_cancelAct`).addEventListener('click', () => { formNueva.style.display = 'none'; });
   container.querySelector(`#${p}_addAct`).addEventListener('click', () => {
@@ -447,15 +495,18 @@ function bindDetailContent(t, container) {
     container.querySelector(`#${p}_newActDesc`).value = '';
     container.querySelector(`#${p}_newActFecha`).value = '';
     formNueva.style.display = 'none';
-    saveAll(); renderAll(); renderActividadesIn(t, container.querySelector(`#${p}_actividades`));
+    saveAll();
+    refreshCardOnly(t);
+    renderActividadesIn(t, container.querySelector(`#${p}_actividades`), container, expandWrapper);
     showToast('Tarea agregada.');
   });
 
-  // Vencimiento
+  // Vencimiento (la fecha NO se borra al ocultar)
   container.querySelector(`#${p}_saveVenc`).addEventListener('click', () => {
     const fecha = container.querySelector(`#${p}_vencimiento`).value;
     if (!fecha) { showToast('Selecciona una fecha.'); return; }
-    t.fechaVencimiento = fecha; saveAll(); renderAll();
+    t.fechaVencimiento = fecha;
+    saveAll(); refreshCardOnly(t);
     showToast('Fecha de vencimiento actualizada.');
   });
 
@@ -471,7 +522,71 @@ function bindDetailContent(t, container) {
   });
 }
 
-function renderActividadesIn(t, listEl) {
+/** Refresca solo la tarjeta en el DOM sin cerrar paneles abiertos */
+function refreshCardOnly(t) {
+  // Actualizar barras de progreso y fechas en la tarjeta visible
+  const cards = document.querySelectorAll(`.tramite-card[data-id="${t.id}"]`);
+  cards.forEach(card => {
+    const segs = card.querySelectorAll('.progress-segment');
+    const esP = esPropio(t);
+    if (segs[0]) segs[0].className = 'progress-segment' + ((!esP && t.gestion?.analisis) ? ' active-1' : '');
+    if (segs[1]) segs[1].className = 'progress-segment' + ((!esP && t.gestion?.cumplimiento) ? ' active-2' : '');
+    if (segs[2]) segs[2].className = 'progress-segment' + (t.terminado ? ' active-3' : '');
+
+    // Actualizar fecha vencimiento en tarjeta
+    const showVenc = t.fechaVencimiento && !(t.gestion && t.gestion.cumplimiento);
+    const datesEl = card.querySelector('.card-dates');
+    if (datesEl) {
+      if (showVenc) {
+        const vcls = vencClass(t.fechaVencimiento, t);
+        const lbl = vcls==='overdue' ? '⚠ Vencido' : vcls==='today' ? '⚠ Hoy' : vcls==='soon' ? '⏰ Mañana' : '📅 Vence';
+        datesEl.innerHTML = `<span class="venc-fecha ${vcls}">${lbl}: ${formatDate(t.fechaVencimiento)}</span>`;
+      } else {
+        datesEl.innerHTML = '';
+      }
+    }
+
+    // Actualizar tareas pendientes en tarjeta
+    const segEl = card.querySelector('.card-seguimiento');
+    const tareasPendientes = (t.seguimiento || []).filter(s => s.estado === 'pendiente');
+    const newSegHtml = buildSeguimientoHtml(tareasPendientes);
+    if (segEl) {
+      const parent = segEl.parentNode;
+      segEl.remove();
+      if (newSegHtml && parent) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = newSegHtml;
+        parent.appendChild(tmp.firstElementChild);
+      }
+    } else if (newSegHtml) {
+      const infoEl = card.querySelector('.card-info');
+      if (infoEl) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = newSegHtml;
+        infoEl.appendChild(tmp.firstElementChild);
+      }
+    }
+  });
+}
+
+function buildSeguimientoHtml(tareasPendientes) {
+  if (!tareasPendientes.length) return '';
+  return `<div class="card-seguimiento">
+    ${tareasPendientes.slice(0,2).map(s => {
+      const dc = dateClass(s.fecha);
+      const fechaTag = s.fecha ? `<span class="seg-fecha ${dc}">${formatDate(s.fecha)}</span>` : '';
+      const respTag  = s.responsable ? `<span style="color:var(--text-muted);font-size:10px">· ${abogadoName(s.responsable)}</span>` : '';
+      return `<div class="card-seg-item">
+        <div class="seg-dot ${dc}"></div>
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.descripcion}</span>
+        ${fechaTag}${respTag}
+      </div>`;
+    }).join('')}
+    ${tareasPendientes.length > 2 ? `<div class="card-seg-item" style="color:var(--text-muted);font-size:11px">+${tareasPendientes.length-2} más…</div>` : ''}
+  </div>`;
+}
+
+function renderActividadesIn(t, listEl, container, expandWrapper) {
   if (!listEl) return;
   listEl.innerHTML = '';
   (t.seguimiento || []).forEach((act, i) => {
@@ -495,16 +610,28 @@ function renderActividadesIn(t, listEl) {
         </div>
       </div>
       <button class="actividad-delete" title="Eliminar">✕</button>`;
+
     div.querySelector('input[type="checkbox"]').addEventListener('change', e => {
       t.seguimiento[i].estado = e.target.checked ? 'realizado' : 'pendiente';
-      saveAll(); renderAll(); renderActividadesIn(t, listEl);
+      saveAll();
+      // Ajuste 11: NO cerrar el panel, solo re-renderizar la lista
+      refreshCardOnly(t);
+      renderActividadesIn(t, listEl, container, expandWrapper);
     });
+
     div.querySelector('input[type="date"]').addEventListener('change', e => {
-      t.seguimiento[i].fecha = e.target.value; saveAll(); renderAll();
+      t.seguimiento[i].fecha = e.target.value;
+      saveAll(); refreshCardOnly(t);
     });
+
     div.querySelector('.actividad-delete').addEventListener('click', () => {
-      if (confirm('¿Eliminar esta tarea?')) { t.seguimiento.splice(i,1); saveAll(); renderAll(); renderActividadesIn(t,listEl); }
+      if (confirm('¿Eliminar esta tarea?')) {
+        t.seguimiento.splice(i, 1);
+        saveAll(); refreshCardOnly(t);
+        renderActividadesIn(t, listEl, container, expandWrapper);
+      }
     });
+
     listEl.appendChild(div);
   });
 }
@@ -521,7 +648,7 @@ function renderNotasIn(t, listEl) {
       <div class="nota-fecha">${formatDatetime(nota.fecha)}</div>
       <button class="nota-delete">✕</button>`;
     div.querySelector('.nota-delete').addEventListener('click', () => {
-      if (confirm('¿Eliminar esta nota?')) { t.notas.splice(idx,1); saveAll(); renderNotasIn(t,listEl); }
+      if (confirm('¿Eliminar esta nota?')) { t.notas.splice(idx, 1); saveAll(); renderNotasIn(t, listEl); }
     });
     listEl.appendChild(div);
   });
@@ -547,7 +674,7 @@ function openDetailModal(t) {
     (t.fechaVencimiento ? ` · Vence: ${formatDate(t.fechaVencimiento)}` : '');
   const body = document.getElementById('detailModalBody');
   body.innerHTML = buildDetailContent(t);
-  bindDetailContent(t, body);
+  bindDetailContent(t, body, null);
   document.getElementById('detailOverlay').classList.add('open');
 }
 
@@ -591,7 +718,7 @@ function openDetailExpand(t) {
     const content = document.createElement('div');
     content.innerHTML = buildDetailContent(t);
     inner.appendChild(content);
-    bindDetailContent(t, content);
+    bindDetailContent(t, content, wrapper);
     panel.appendChild(inner);
     wrapper.appendChild(panel);
   }
@@ -626,19 +753,18 @@ function buildCard(t) {
   const seg1 = (!esP && t.gestion?.analisis)    ? 'active-1' : '';
   const seg2 = (!esP && t.gestion?.cumplimiento) ? 'active-2' : '';
   const seg3 = t.terminado                        ? 'active-3' : '';
-
   const etapa = computeEtapa(t);
 
-  // Vencimiento: ocultar si cumplimiento marcado
+  // Vencimiento: ocultar si cumplimiento
   const showVenc = t.fechaVencimiento && !(t.gestion && t.gestion.cumplimiento);
-  const vcls = showVenc ? vencClass(t.fechaVencimiento, t) : '';
   let vencHtml = '';
   if (showVenc) {
-    const lbl = vcls==='overdue' ? '⚠ Vencido' : vcls==='today' ? '⚠ Hoy' : vcls==='soon' ? '⏰ Pronto' : '📅 Vence';
+    const vcls = vencClass(t.fechaVencimiento, t);
+    const lbl = vcls==='overdue' ? '⚠ Vencido' : vcls==='today' ? '⚠ Hoy' : vcls==='soon' ? '⏰ Mañana' : '📅 Vence';
     vencHtml = `<span class="venc-fecha ${vcls}">${lbl}: ${formatDate(t.fechaVencimiento)}</span>`;
   }
 
-  // Tag abogado/propio
+  // Tag responsable
   let responsableTag;
   if (esP) {
     responsableTag = `<span class="tag tag-propio">👤 Propio</span>`;
@@ -648,37 +774,20 @@ function buildCard(t) {
     responsableTag = `<span class="tag tag-abogado" style="background:${abBg};color:${abColor}">${abogadoName(t.abogado)}</span>`;
   }
 
-  // Etapa tag
   const etapaTag = t.terminado
     ? `<span class="tag tag-terminado">Terminado</span>`
-    : esP ? '' // los propios no muestran etapa
+    : esP ? ''
     : etapa === 'seguimiento'
       ? `<span class="tag tag-etapa-seguimiento">Seguimiento</span>`
       : `<span class="tag tag-etapa-gestion">Gestión</span>`;
 
-  // Seguimiento: solo tareas PENDIENTES visibles en la tarjeta
   const tareasPendientes = (t.seguimiento || []).filter(s => s.estado === 'pendiente');
-  const seguimientoHtml = tareasPendientes.length
-    ? `<div class="card-seguimiento">
-        ${tareasPendientes.slice(0,2).map(s => {
-          const dc = dateClass(s.fecha);
-          const fechaTag = s.fecha ? `<span class="seg-fecha ${dc}">${formatDate(s.fecha)}</span>` : '';
-          const respTag  = s.responsable ? `<span style="color:var(--text-muted);font-size:10px">· ${abogadoName(s.responsable)}</span>` : '';
-          return `<div class="card-seg-item">
-            <div class="seg-dot ${dc}"></div>
-            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.descripcion}</span>
-            ${fechaTag}${respTag}
-          </div>`;
-        }).join('')}
-        ${tareasPendientes.length > 2 ? `<div class="card-seg-item" style="color:var(--text-muted);font-size:11px">+${tareasPendientes.length-2} más…</div>` : ''}
-      </div>`
-    : '';
+  const seguimientoHtml = buildSeguimientoHtml(tareasPendientes);
 
-  // Checks según tipo
+  // Checks
   let checksHtml = '';
   if (!t.terminado) {
     if (esP) {
-      // Sólo check terminar
       checksHtml = `
         <div class="card-checks" id="checks_${t.id}">
           <label class="round-check-wrap check-terminar" title="Terminar trámite">
@@ -688,7 +797,6 @@ function buildCard(t) {
           </label>
         </div>`;
     } else {
-      // Análisis, Cumplimiento, Terminar
       checksHtml = `
         <div class="card-checks" id="checks_${t.id}">
           <label class="round-check-wrap" title="Análisis">
@@ -731,7 +839,7 @@ function buildCard(t) {
       </div>
     </div>`;
 
-  // Zona nueva tarea en el pie de la tarjeta (siempre visible para activos)
+  // Botón nueva tarea en pie
   if (!t.terminado) {
     const tareaRow = document.createElement('div');
     tareaRow.className = 'card-nueva-tarea-row';
@@ -741,26 +849,25 @@ function buildCard(t) {
     tareaRow.appendChild(btnTarea);
     card.appendChild(tareaRow);
 
-    // El formulario de nueva tarea en la tarjeta abre el panel de detalle directamente
     btnTarea.addEventListener('click', e => {
       e.stopPropagation();
       openDetail(t.id);
-      // Espera a que se abra el panel y luego muestra el form
       setTimeout(() => {
-        const p = `det_${t.id}`;
-        const form = document.getElementById(`${p}_formNuevaTarea`);
-        if (form) { form.style.display = 'block'; form.querySelector('input')?.focus(); }
+        const pid = `det_${t.id}`;
+        const form = document.getElementById(`${pid}_formNuevaTarea`);
+        if (form) {
+          form.style.display = 'block';
+          setTimeout(() => document.getElementById(`${pid}_newActDesc`)?.focus(), 80);
+        }
       }, 380);
     });
   }
 
-  // Click en card
   card.addEventListener('click', e => {
     if (e.target.closest('.card-checks') || e.target.closest('.card-nueva-tarea-row')) return;
     openDetail(t.id);
   });
 
-  // Checks listeners
   if (!t.terminado) {
     const cc = card.querySelector(`#checks_${t.id}`);
     cc.addEventListener('click', e => e.stopPropagation());
@@ -770,14 +877,18 @@ function buildCard(t) {
         t.gestion.analisis = e.target.checked; saveAll(); renderAll();
       });
       card.querySelector('.card-check-cumplimiento').addEventListener('change', e => {
-        t.gestion.cumplimiento = e.target.checked; saveAll(); renderAll();
+        t.gestion.cumplimiento = e.target.checked;
+        if (e.target.checked) {
+          crearTareaRequerimiento(t);
+          showToast('✓ Cumplimiento marcado. Tarea "1er req" creada.');
+        }
+        saveAll(); renderAll();
       });
     }
 
-    // Check terminar
     card.querySelector('.card-check-terminar').addEventListener('change', e => {
       if (!e.target.checked) return;
-      e.target.checked = false; // reset visual, confirmamos
+      e.target.checked = false;
       if (!confirm('¿Marcar este trámite como terminado?')) return;
       t.terminado = true; t.terminadoEn = new Date().toISOString();
       saveAll(); renderAll(); showToast('Trámite terminado. ✓');
@@ -793,19 +904,18 @@ function buildCard(t) {
 // DRAG & DROP
 // ============================================================
 let dragSrcId = null;
-
 function attachDragEvents(card, wrapper) {
   card.addEventListener('dragstart', e => { dragSrcId = wrapper.dataset.id; card.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
   card.addEventListener('dragend',   () => { card.classList.remove('dragging'); document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over')); });
-  card.addEventListener('dragover',  e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (wrapper.dataset.id !== dragSrcId) card.classList.add('drag-over'); });
+  card.addEventListener('dragover',  e => { e.preventDefault(); e.dataTransfer.dropEffect='move'; if(wrapper.dataset.id!==dragSrcId) card.classList.add('drag-over'); });
   card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
-  card.addEventListener('drop', e => { e.preventDefault(); e.stopPropagation(); card.classList.remove('drag-over'); if (dragSrcId && dragSrcId !== wrapper.dataset.id) reorder(dragSrcId, wrapper.dataset.id); });
+  card.addEventListener('drop', e => { e.preventDefault(); e.stopPropagation(); card.classList.remove('drag-over'); if(dragSrcId&&dragSrcId!==wrapper.dataset.id) reorder(dragSrcId,wrapper.dataset.id); });
 }
 
 function reorder(srcId, targetId) {
   const order = getActiveOrder();
   const si = order.indexOf(srcId), ti = order.indexOf(targetId);
-  if (si === -1 || ti === -1) return;
+  if (si===-1||ti===-1) return;
   order.splice(si,1); order.splice(ti,0,srcId);
   STATE.order = order; saveAll(); renderAll();
 }
@@ -842,15 +952,18 @@ function applyFilters(list, f) {
       const tieneResp = (t.seguimiento||[]).some(s => s.responsable === f.responsable);
       if (!tieneResp) return false;
     }
-    if (f.etapa      && computeEtapa(t) !== f.etapa) return false;
-    if (f.search     && !t.numero.toString().toLowerCase().includes(f.search) && !t.descripcion.toLowerCase().includes(f.search)) return false;
+    if (f.etapa && computeEtapa(t) !== f.etapa) return false;
+    if (f.search) {
+      const hay = t.numero.toString().includes(f.search) || (t.descripcion||'').toLowerCase().includes(f.search);
+      if (!hay) return false;
+    }
     return true;
   });
 }
 
 function renderList(container, emptyEl, list) {
   container.innerHTML = '';
-  if (list.length === 0) { emptyEl.classList.add('visible'); return; }
+  if (!list.length) { emptyEl.classList.add('visible'); return; }
   emptyEl.classList.remove('visible');
   list.forEach(t => container.appendChild(buildCard(t)));
 }
@@ -861,7 +974,6 @@ function renderAll() {
   const sorted  = sortActives(actives);
   renderList(document.getElementById('tramiteList'), document.getElementById('emptyAll'), applyFilters(sorted, f));
 
-  // Hoy/Vencidos: tareas de seguimiento vencidas/hoy O fecha de vencimiento vencida/hoy
   const urgentes = applyFilters(sorted.filter(tr => esHoyOVencido(tr)), f);
   renderList(document.getElementById('todayList'), document.getElementById('emptyToday'), urgentes);
 
@@ -874,7 +986,127 @@ function renderAll() {
 }
 
 // ============================================================
-// MODAL TRÁMITE — TIPO TOGGLE
+// REPORTE DEL DÍA
+// ============================================================
+let reportFiltroAbogado = '';
+
+function openReport() {
+  document.getElementById('reportSubtitle').textContent = `Generado el ${formatDate(today())}`;
+  // Actualizar texto de los botones con nombres actuales
+  updateAbogadoNames();
+  renderReport();
+  document.getElementById('reportOverlay').classList.add('open');
+}
+
+function closeReport() {
+  document.getElementById('reportOverlay').classList.remove('open');
+}
+
+function renderReport() {
+  const hoy = today();
+  const contenido = document.getElementById('reportContent');
+  contenido.innerHTML = '';
+
+  // Filtrar trámites según abogado seleccionado
+  let tramites = STATE.tramites.filter(t => !t.terminado);
+  if (reportFiltroAbogado) {
+    if (reportFiltroAbogado === 'yo') {
+      tramites = tramites.filter(t =>
+        (t.seguimiento||[]).some(s => s.responsable === 'yo')
+      );
+    } else {
+      tramites = tramites.filter(t => t.abogado === reportFiltroAbogado ||
+        (t.seguimiento||[]).some(s => s.responsable === reportFiltroAbogado));
+    }
+  }
+
+  // Recolectar items del reporte
+  const items = [];
+
+  tramites.forEach(t => {
+    // Vencimiento vencido o hoy (si cumplimiento no marcado)
+    if (t.fechaVencimiento && !(t.gestion && t.gestion.cumplimiento) && t.fechaVencimiento <= hoy) {
+      const cls = t.fechaVencimiento < hoy ? 'overdue' : 'today';
+      items.push({
+        t, tipo: 'vencimiento', fecha: t.fechaVencimiento, cls,
+        tarea: `📅 Fecha de vencimiento: ${formatDate(t.fechaVencimiento)}`,
+      });
+    }
+    // Tareas pendientes con fecha vencida o hoy
+    (t.seguimiento || []).filter(s => s.estado === 'pendiente' && s.fecha && s.fecha <= hoy).forEach(s => {
+      const cls = s.fecha < hoy ? 'overdue' : 'today';
+      // Si ya hay un item de vencimiento para el mismo trámite en la misma fecha, no duplicar
+      items.push({
+        t, tipo: 'tarea', fecha: s.fecha, cls,
+        tarea: s.descripcion,
+        resp: s.responsable,
+      });
+    });
+  });
+
+  if (!items.length) {
+    contenido.innerHTML = '<div class="report-empty">🎉 ¡No hay vencimientos ni tareas pendientes para hoy!</div>';
+    return;
+  }
+
+  // Ordenar: primero vencidos, luego hoy
+  items.sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+  // Separar en grupos
+  const vencidos = items.filter(i => i.cls === 'overdue');
+  const deHoy    = items.filter(i => i.cls === 'today');
+
+  const renderGroup = (titulo, groupItems, titleCls) => {
+    if (!groupItems.length) return;
+    const sec = document.createElement('div');
+    sec.className = 'report-section';
+    sec.innerHTML = `<div class="report-section-title ${titleCls}">${titulo} (${groupItems.length})</div>`;
+    groupItems.forEach(item => {
+      const el = document.createElement('div');
+      el.className = `report-item ${item.cls}`;
+      const modulo = item.t.modulo || '';
+      const tipo = item.tipo === 'vencimiento' ? '📅 Vencimiento' : '📌 Tarea';
+      const respTag = item.resp
+        ? `<span class="report-item-resp">${abogadoName(item.resp)}</span>`
+        : '';
+      el.innerHTML = `
+        <div class="report-item-num">#${item.t.numero}</div>
+        <div class="report-item-body">
+          <div class="report-item-desc">${escapeHtml(item.t.descripcion)}</div>
+          <div class="report-item-tarea"><span class="tarea-label">${tipo} — ${escapeHtml(item.tarea)}</span></div>
+          <div class="report-item-meta">
+            <span class="report-item-resp">${modulo}</span>
+            ${respTag}
+          </div>
+        </div>`;
+      sec.appendChild(el);
+    });
+    contenido.appendChild(sec);
+  };
+
+  renderGroup('⚠ Vencidos / Atrasados', vencidos, 'danger');
+  renderGroup('📅 Para hoy', deHoy, 'warning');
+}
+
+function buildReportTextPlain() {
+  const hoy = today();
+  let text = `REPORTE JURITASK — ${formatDate(hoy)}\n`;
+  text += '='.repeat(50) + '\n\n';
+
+  const items = document.querySelectorAll('#reportContent .report-item');
+  if (!items.length) { text += 'No hay vencimientos ni tareas para hoy.\n'; return text; }
+
+  items.forEach(el => {
+    const num  = el.querySelector('.report-item-num')?.textContent || '';
+    const desc = el.querySelector('.report-item-desc')?.textContent || '';
+    const tarea = el.querySelector('.tarea-label')?.textContent || '';
+    text += `${num} — ${desc}\n  ${tarea}\n\n`;
+  });
+  return text;
+}
+
+// ============================================================
+// MODAL TRÁMITE
 // ============================================================
 let modalTipoActual = 'abogado';
 
@@ -883,7 +1115,6 @@ function setModalTipo(tipo) {
   document.getElementById('tipoBtnAbogado').classList.toggle('active', tipo === 'abogado');
   document.getElementById('tipoBtnPropio').classList.toggle('active', tipo === 'propio');
   document.getElementById('fAbogadoWrap').style.display = tipo === 'abogado' ? '' : 'none';
-  // Re-sync responsable select
   syncTareaRespSelect();
 }
 
@@ -904,17 +1135,19 @@ function openModal(tramite = null) {
   document.getElementById('fAbogado').value          = tramite?.abogado || 'abogado1';
   document.getElementById('fFechaVencimiento').value = tramite?.fechaVencimiento || '';
 
-  // Tipo
   const tipo = tramite?.tipo || 'abogado';
   setModalTipo(tipo);
 
-  // Ocultar form de nueva tarea
   document.getElementById('nuevaTareaFieldsModal').style.display = 'none';
+  document.getElementById('nuevaNotaFieldsModal').style.display  = 'none';
   document.getElementById('fTareaDesc').value  = '';
   document.getElementById('fTareaFecha').value = '';
+  document.getElementById('fNota').value       = '';
   syncTareaRespSelect();
 
   document.getElementById('modalOverlay').classList.add('open');
+  // Ajuste 8: focus en número
+  setTimeout(() => document.getElementById('fNumero')?.focus(), 120);
 }
 
 function closeModal() {
@@ -936,28 +1169,32 @@ function saveTramite() {
     showToast('Completa: número, descripción, módulo y fecha de vencimiento.'); return;
   }
 
-  // Tarea inicial opcional
   const tareaDesc  = document.getElementById('fTareaDesc').value.trim();
   const tareaFecha = document.getElementById('fTareaFecha').value;
   const tareaResp  = document.getElementById('fTareaResp').value;
+  const notaTexto  = document.getElementById('fNota').value.trim();
+
   const tareaInicial = tareaDesc
     ? [{ descripcion: tareaDesc, fecha: tareaFecha, responsable: tareaResp, estado: 'pendiente' }]
+    : [];
+  const notaInicial = notaTexto
+    ? [{ texto: notaTexto, fecha: new Date().toISOString() }]
     : [];
 
   if (isEditing) {
     const t = getById(editingId);
     if (t) {
       Object.assign(t, { numero, descripcion: desc, modulo, tipo, fechaVencimiento: venc });
-      if (tipo === 'abogado') t.abogado = abogado;
-      else delete t.abogado;
+      if (tipo === 'abogado') t.abogado = abogado; else delete t.abogado;
       if (tareaInicial.length) t.seguimiento.unshift(...tareaInicial);
+      if (notaInicial.length)  t.notas.push(...notaInicial);
     }
     showToast('Trámite actualizado.');
   } else {
     const newT = {
       id: genId(), numero, descripcion: desc, modulo, tipo, fechaVencimiento: venc,
       gestion: { analisis: false, cumplimiento: false },
-      seguimiento: tareaInicial, notas: [],
+      seguimiento: tareaInicial, notas: notaInicial,
       terminado: false, terminadoEn: null, creadoEn: new Date().toISOString(),
     };
     if (tipo === 'abogado') newT.abogado = abogado;
@@ -982,6 +1219,18 @@ function renderConfig() {
   setDetailMode(STATE.config.detailMode || 'expand');
   renderModulosList();
   renderThemeGrid();
+  // AutoReq
+  const arToggle = document.getElementById('autoReqToggle'); if (arToggle) arToggle.checked = STATE.config.autoReq !== false;
+  const arTexto = document.getElementById('autoReqTexto'); if (arTexto) arTexto.value = STATE.config.autoReqTexto || '1er req';
+  const arDias  = document.getElementById('autoReqDias');  if (arDias)  arDias.value  = STATE.config.autoReqDias  ?? 7;
+  syncAutoReqFields();
+}
+
+function syncAutoReqFields() {
+  const on = document.getElementById('autoReqToggle')?.checked;
+  const fields = document.getElementById('autoReqFields');
+  if (fields) fields.style.opacity = on ? '1' : '0.4';
+  if (fields) fields.style.pointerEvents = on ? '' : 'none';
 }
 
 function renderThemeGrid() {
@@ -1022,7 +1271,9 @@ function renderModulosList() {
     row.className = 'modulo-row';
     row.innerHTML = `<span class="modulo-sigla">${m.sigla}</span><span class="modulo-nombre">${m.nombre}</span><button class="modulo-delete">✕</button>`;
     row.querySelector('.modulo-delete').addEventListener('click', () => {
-      if (confirm(`¿Eliminar módulo ${m.sigla}?`)) { STATE.config.modulos.splice(i,1); saveAll(); populateModuloSelects(); renderModulosList(); }
+      if (confirm(`¿Eliminar módulo ${m.sigla}?`)) {
+        STATE.config.modulos.splice(i,1); saveAll(); populateModuloSelects(); renderModulosList();
+      }
     });
     list.appendChild(row);
   });
@@ -1046,17 +1297,7 @@ function importData(file) {
       if (data.tramites) STATE.tramites = data.tramites;
       if (data.order)    STATE.order = data.order;
       if (data.config)   STATE.config = Object.assign({...DEFAULT_CONFIG, modulos:[...DEFAULT_CONFIG.modulos]}, data.config);
-      // Migrar si venían con proximaAccion
-      STATE.tramites.forEach(t => {
-        if (!t.tipo) t.tipo = 'abogado';
-        if (!t.seguimiento) t.seguimiento = [];
-        if (!t.notas) t.notas = [];
-        if (!t.gestion) t.gestion = { analisis: false, cumplimiento: false };
-        if (t.proximaAccion && t.proximaAccion.descripcion) {
-          t.seguimiento.unshift({ descripcion: t.proximaAccion.descripcion, fecha: t.proximaAccion.fecha||'', responsable: t.proximaAccion.responsable||(t.abogado||'propio'), estado: 'pendiente' });
-          delete t.proximaAccion;
-        }
-      });
+      STATE.tramites.forEach(migrateTramite);
       saveAll(); applyCssColors(); applyTheme(STATE.config.theme||'claro');
       populateModuloSelects(); updateAbogadoNames();
       setColumns(STATE.config.columns||1);
@@ -1102,9 +1343,6 @@ function setupContainerDrop(container) {
   });
 }
 
-// ============================================================
-// BOTTOM SHEET MÓVIL
-// ============================================================
 function openMobSheet() { document.getElementById('mobSheet').classList.add('open'); document.getElementById('mobSheetOverlay').classList.add('show'); }
 function closeMobSheet() { document.getElementById('mobSheet').classList.remove('open'); document.getElementById('mobSheetOverlay').classList.remove('show'); }
 
@@ -1151,10 +1389,16 @@ let currentView = 'all';
 function switchView(view) {
   currentView = view;
   closeAllExpands();
+
+  // Ajuste 5: limpiar búsqueda al cambiar de vista
+  const searchEl = document.getElementById('searchInput');
+  if (searchEl) searchEl.value = '';
+
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById(`view-${view}`)?.classList.add('active');
   document.querySelector(`.nav-item[data-view="${view}"]`)?.classList.add('active');
+
   const titles = { all: 'Todos los trámites', today: 'Hoy / Vencidos', finished: 'Terminados', config: 'Configuración' };
   document.getElementById('topbarTitle').textContent = titles[view] || '';
   const isConfig = view === 'config';
@@ -1162,7 +1406,9 @@ function switchView(view) {
   document.getElementById('colSwitcher').style.display    = isConfig ? 'none' : '';
   document.getElementById('sortWrap').style.display       = isConfig ? 'none' : '';
   document.getElementById('mobOptsBtn').style.display     = isConfig ? 'none' : '';
+  document.getElementById('reportBtn').style.display      = isConfig ? 'none' : '';
   if (isConfig) renderConfig();
+  else renderAll();
 }
 
 // ============================================================
@@ -1193,7 +1439,14 @@ function init() {
   renderAll();
   setupContainerDrop(document.getElementById('tramiteList'));
 
-  // Navegación sidebar
+  // Confirm dialog propio
+  document.getElementById('confirmOk').addEventListener('click', () => _confirmClose(true));
+  document.getElementById('confirmCancel').addEventListener('click', () => _confirmClose(false));
+  document.getElementById('confirmOverlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('confirmOverlay')) _confirmClose(false);
+  });
+
+  // Navegación
   document.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => { switchView(btn.dataset.view); if (isMobile()) closeSidebar(); });
   });
@@ -1206,46 +1459,62 @@ function init() {
   // Nuevo trámite
   document.getElementById('newTramiteBtn').addEventListener('click', () => openModal());
 
-  // Toggle tipo de trámite en modal
+  // Toggle tipo
   document.getElementById('tipoBtnAbogado').addEventListener('click', () => setModalTipo('abogado'));
   document.getElementById('tipoBtnPropio').addEventListener('click',  () => setModalTipo('propio'));
 
-  // Abogado change → sync responsable
+  // Abogado → sync resp
   document.getElementById('fAbogado').addEventListener('change', syncTareaRespSelect);
 
-  // Mostrar/ocultar form de tarea en modal
+  // Mostrar tarea en modal
   document.getElementById('btnMostrarTareaModal').addEventListener('click', () => {
     const fields = document.getElementById('nuevaTareaFieldsModal');
-    fields.style.display = fields.style.display === 'none' ? 'block' : 'none';
+    const open = fields.style.display !== 'none';
+    fields.style.display = open ? 'none' : 'block';
+    if (!open) setTimeout(() => document.getElementById('fTareaDesc')?.focus(), 60);
   });
 
-  // Columnas desktop
-  document.querySelectorAll('.col-btn').forEach(btn => btn.addEventListener('click', () => setColumns(parseInt(btn.dataset.cols))));
+  // Mostrar nota en modal
+  document.getElementById('btnMostrarNotaModal').addEventListener('click', () => {
+    const fields = document.getElementById('nuevaNotaFieldsModal');
+    const open = fields.style.display !== 'none';
+    fields.style.display = open ? 'none' : 'block';
+    if (!open) setTimeout(() => document.getElementById('fNota')?.focus(), 60);
+  });
 
-  // Ordenar desktop
+  // Columnas
+  document.querySelectorAll('.col-btn').forEach(btn => btn.addEventListener('click', () => setColumns(parseInt(btn.dataset.cols))));
   document.getElementById('sortSelect').addEventListener('change', e => setSortBy(e.target.value));
 
-  // Bottom sheet móvil
+  // Bottom sheet
   document.getElementById('mobOptsBtn').addEventListener('click', openMobSheet);
   document.getElementById('mobSheetOverlay').addEventListener('click', closeMobSheet);
   document.getElementById('sortSelectMob').addEventListener('change', e => { setSortBy(e.target.value); closeMobSheet(); });
   document.querySelectorAll('.mob-col-btn').forEach(btn => btn.addEventListener('click', () => { setColumns(parseInt(btn.dataset.cols)); closeMobSheet(); }));
 
-  // Modal tramite
+  // Modal trámite
   document.getElementById('modalClose').addEventListener('click', closeModal);
   document.getElementById('cancelModal').addEventListener('click', closeModal);
   document.getElementById('saveTramite').addEventListener('click', saveTramite);
   initDraggableModal(document.getElementById('tramiteModal'));
 
-  // Modal detalle
+  // Modal detalle — eliminar funciona cerrando primero el overlay
   document.getElementById('detailClose').addEventListener('click', closeDetail);
   document.getElementById('detailOverlay').addEventListener('click', e => { if (e.target === document.getElementById('detailOverlay')) closeDetail(); });
-  document.getElementById('editDetailBtn').addEventListener('click', () => { const t = getById(currentDetailId); closeDetail(); openModal(t); });
-  document.getElementById('deleteDetailBtn').addEventListener('click', () => {
-    if (confirm('¿Eliminar este trámite?')) {
-      STATE.tramites = STATE.tramites.filter(t => t.id !== currentDetailId);
-      STATE.order    = STATE.order.filter(id => id !== currentDetailId);
-      saveAll(); renderAll(); closeDetail(); showToast('Trámite eliminado.');
+  document.getElementById('editDetailBtn').addEventListener('click', () => {
+    const t = getById(currentDetailId); closeDetail(); openModal(t);
+  });
+  document.getElementById('deleteDetailBtn').addEventListener('click', async () => {
+    const idToDelete = currentDetailId;
+    if (!idToDelete) return;
+    // Cerrar el overlay de detalle PRIMERO para que el confirm dialog sea visible y funcional
+    closeDetail();
+    await new Promise(r => setTimeout(r, 50)); // esperar transición CSS
+    const ok = await showConfirm('¿Eliminar este trámite? Esta acción no se puede deshacer.');
+    if (ok) {
+      STATE.tramites = STATE.tramites.filter(t => t.id !== idToDelete);
+      STATE.order    = STATE.order.filter(id => id !== idToDelete);
+      saveAll(); renderAll(); showToast('Trámite eliminado.');
     }
   });
 
@@ -1262,16 +1531,15 @@ function init() {
     renderAll();
   });
 
-  // Export/Import
+  // Export/Import (ahora en Config pero también en sidebar antiguo — ya eliminados del sidebar)
   document.getElementById('exportBtn').addEventListener('click', exportData);
   document.getElementById('importBtn').addEventListener('click', () => document.getElementById('importFile').click());
   document.getElementById('importFile').addEventListener('change', e => { if (e.target.files[0]) { importData(e.target.files[0]); e.target.value = ''; } });
 
-  // Config: modo detalle
+  // Config
   document.getElementById('modeExpand').addEventListener('click', () => setDetailMode('expand'));
   document.getElementById('modeModal').addEventListener('click',  () => setDetailMode('modal'));
 
-  // Config: colores abogados
   document.getElementById('colorAbogado1').addEventListener('input', () => updateColorPreview(1));
   document.getElementById('colorAbogado2').addEventListener('input', () => updateColorPreview(2));
   document.getElementById('saveNamesBtn').addEventListener('click', () => {
@@ -1285,7 +1553,6 @@ function init() {
     showToast('Configuración guardada.');
   });
 
-  // Config: colores barra
   document.getElementById('colorBar1').addEventListener('input', updateBarPreviews);
   document.getElementById('colorBar2').addEventListener('input', updateBarPreviews);
   document.getElementById('colorBar3').addEventListener('input', updateBarPreviews);
@@ -1302,7 +1569,21 @@ function init() {
     saveAll(); applyCssColors(); renderConfig(); showToast('Colores restablecidos.');
   });
 
-  // Config: módulos
+  // Config: tarea automática al cumplimiento
+  document.getElementById('autoReqToggle').addEventListener('change', e => {
+    STATE.config.autoReq = e.target.checked;
+    syncAutoReqFields(); saveAll();
+  });
+  document.getElementById('saveAutoReqBtn').addEventListener('click', () => {
+    const texto = document.getElementById('autoReqTexto').value.trim();
+    const dias  = parseInt(document.getElementById('autoReqDias').value);
+    if (!texto) { showToast('El texto no puede estar vacío.'); return; }
+    if (isNaN(dias) || dias < 1 || dias > 365) { showToast('Los días deben estar entre 1 y 365.'); return; }
+    STATE.config.autoReqTexto = texto;
+    STATE.config.autoReqDias  = dias;
+    saveAll(); showToast('Configuración de tarea automática guardada.');
+  });
+
   document.getElementById('addModuloBtn').addEventListener('click', () => {
     const sigla  = document.getElementById('newModuloSigla').value.trim().toUpperCase();
     const nombre = document.getElementById('newModuloNombre').value.trim();
@@ -1315,7 +1596,6 @@ function init() {
     showToast('Módulo agregado.');
   });
 
-  // Config: borrar todo
   document.getElementById('clearAllBtn').addEventListener('click', () => {
     if (confirm('¿Borrar TODOS los datos? Esta acción no se puede deshacer.')) {
       if (confirm('¿Estás seguro? Se perderán todos los trámites.')) {
@@ -1331,10 +1611,45 @@ function init() {
     }
   });
 
-  // Teclado ESC
+  // Reporte
+  document.getElementById('reportBtn').addEventListener('click', openReport);
+  document.getElementById('reportClose').addEventListener('click', closeReport);
+  document.getElementById('reportOverlay').addEventListener('click', e => { if (e.target === document.getElementById('reportOverlay')) closeReport(); });
+
+  // Filtro de abogado en reporte
+  document.getElementById('reportFilterGroup').addEventListener('click', e => {
+    const btn = e.target.closest('[data-abogado]');
+    if (!btn) return;
+    reportFiltroAbogado = btn.dataset.abogado;
+    document.querySelectorAll('#reportFilterGroup .toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
+    renderReport();
+  });
+
+  // Imprimir reporte
+  document.getElementById('reportPrintBtn').addEventListener('click', () => {
+    // Marcar área a imprimir
+    const area = document.getElementById('reportContent');
+    const header = `<h2 style="font-size:18px;margin-bottom:4px">Reporte JuriTask — ${formatDate(today())}</h2>`;
+    const printDiv = document.createElement('div');
+    printDiv.id = 'reportPrintArea';
+    printDiv.innerHTML = header + area.innerHTML;
+    document.body.appendChild(printDiv);
+    window.print();
+    document.body.removeChild(printDiv);
+  });
+
+  // Copiar reporte como texto
+  document.getElementById('reportCopyBtn').addEventListener('click', () => {
+    const text = buildReportTextPlain();
+    navigator.clipboard.writeText(text).then(() => showToast('Reporte copiado al portapapeles.')).catch(() => showToast('No se pudo copiar.'));
+  });
+
+  // ESC
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    if (document.getElementById('detailOverlay').classList.contains('open')) closeDetail();
+    if (document.getElementById('confirmOverlay').classList.contains('open')) { _confirmClose(false); return; }
+    if (document.getElementById('reportOverlay').classList.contains('open')) closeReport();
+    else if (document.getElementById('detailOverlay').classList.contains('open')) closeDetail();
     else if (document.getElementById('modalOverlay').classList.contains('open')) closeModal();
     else if (document.getElementById('mobSheet').classList.contains('open')) closeMobSheet();
     else closeAllExpands();
