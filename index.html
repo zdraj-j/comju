@@ -21,61 +21,25 @@
     </div>
     <button class="sidebar-toggle" id="sidebarToggle" title="Cerrar menú">✕</button>
   </div>
-
   <nav class="sidebar-nav">
-    <button class="nav-item active" data-view="all">
-      <span class="nav-icon">◈</span> Todos los trámites
-    </button>
-    <button class="nav-item" data-view="today">
-      <span class="nav-icon">◉</span> Hoy / Vencidos
-      <span class="badge" id="todayBadge">0</span>
-    </button>
-    <button class="nav-item" data-view="finished">
-      <span class="nav-icon">◎</span> Terminados
-    </button>
-    <button class="nav-item" data-view="config">
-      <span class="nav-icon">◫</span> Configuración
-    </button>
+    <button class="nav-item active" data-view="all"><span class="nav-icon">◈</span> Todos los trámites</button>
+    <button class="nav-item" data-view="today"><span class="nav-icon">◉</span> Hoy / Vencidos<span class="badge" id="todayBadge">0</span></button>
+    <button class="nav-item" data-view="calendar"><span class="nav-icon">📅</span> Calendario</button>
+    <button class="nav-item" data-view="finished"><span class="nav-icon">◎</span> Terminados</button>
+    <button class="nav-item" data-view="config"><span class="nav-icon">◫</span> Configuración</button>
   </nav>
-
   <div class="sidebar-filters" id="sidebarFilters">
     <p class="filter-label">Filtros</p>
-    <div class="filter-group">
-      <label>Tipo</label>
-      <select id="filterTipo">
-        <option value="">Todos</option>
-        <option value="abogado">Trámites abogado</option>
-        <option value="propio">Trámites propios</option>
-      </select>
+    <div class="filter-group"><label>Tipo</label>
+      <select id="filterTipo"><option value="">Todos</option><option value="abogado">Trámites abogado</option><option value="propio">Trámites propios</option></select>
     </div>
-    <div class="filter-group">
-      <label>Abogado</label>
-      <select id="filterAbogado">
-        <option value="">Todos</option>
-        <option value="abogado1" id="filterAbogado1Opt">Abogado 1</option>
-        <option value="abogado2" id="filterAbogado2Opt">Abogado 2</option>
-      </select>
+    <div class="filter-group"><label>Abogado</label><select id="filterAbogado"><option value="">Todos</option></select></div>
+    <div class="filter-group"><label>Módulo</label><select id="filterModulo"><option value="">Todos</option></select></div>
+    <div class="filter-group"><label>Responsable seguimiento</label>
+      <select id="filterResponsable"><option value="">Todos</option></select>
     </div>
-    <div class="filter-group">
-      <label>Módulo</label>
-      <select id="filterModulo"><option value="">Todos</option></select>
-    </div>
-    <div class="filter-group">
-      <label>Responsable seguimiento</label>
-      <select id="filterResponsable">
-        <option value="">Todos</option>
-        <option value="abogado1" id="filterResp1Opt">Abogado 1</option>
-        <option value="abogado2" id="filterResp2Opt">Abogado 2</option>
-        <option value="yo">Yo mismo</option>
-      </select>
-    </div>
-    <div class="filter-group">
-      <label>Etapa</label>
-      <select id="filterEtapa">
-        <option value="">Todas</option>
-        <option value="gestion">Gestión</option>
-        <option value="seguimiento">Seguimiento</option>
-      </select>
+    <div class="filter-group"><label>Etapa</label>
+      <select id="filterEtapa"><option value="">Todas</option><option value="gestion">Gestión</option><option value="seguimiento">Seguimiento</option></select>
     </div>
     <button class="btn-clear-filters" id="clearFilters">Limpiar filtros</button>
   </div>
@@ -102,45 +66,29 @@
       </div>
       <div class="col-switcher" id="colSwitcher">
         <button class="col-btn active" data-cols="1" title="1 columna">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <rect x="3" y="2" width="10" height="4" rx="1" fill="currentColor"/>
-            <rect x="3" y="7" width="10" height="4" rx="1" fill="currentColor" opacity=".5"/>
-            <rect x="3" y="12" width="10" height="2" rx="1" fill="currentColor" opacity=".3"/>
-          </svg>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="4" rx="1" fill="currentColor"/><rect x="3" y="7" width="10" height="4" rx="1" fill="currentColor" opacity=".5"/><rect x="3" y="12" width="10" height="2" rx="1" fill="currentColor" opacity=".3"/></svg>
         </button>
         <button class="col-btn" data-cols="2" title="2 columnas">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <rect x="2" y="2" width="5" height="12" rx="1" fill="currentColor"/>
-            <rect x="9" y="2" width="5" height="12" rx="1" fill="currentColor" opacity=".5"/>
-          </svg>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="12" rx="1" fill="currentColor"/><rect x="9" y="2" width="5" height="12" rx="1" fill="currentColor" opacity=".5"/></svg>
         </button>
         <button class="col-btn" data-cols="3" title="3 columnas">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <rect x="1" y="2" width="4" height="12" rx="1" fill="currentColor"/>
-            <rect x="6" y="2" width="4" height="12" rx="1" fill="currentColor" opacity=".6"/>
-            <rect x="11" y="2" width="4" height="12" rx="1" fill="currentColor" opacity=".3"/>
-          </svg>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="2" width="4" height="12" rx="1" fill="currentColor"/><rect x="6" y="2" width="4" height="12" rx="1" fill="currentColor" opacity=".6"/><rect x="11" y="2" width="4" height="12" rx="1" fill="currentColor" opacity=".3"/></svg>
         </button>
       </div>
-      <!-- Botón reporte -->
-      <button class="btn-report" id="reportBtn" title="Generar reporte del día">📋 Reporte</button>
+      <button class="btn-report" id="reportBtn" title="Reporte del día">📋 Reporte</button>
       <button class="mob-opts-btn" id="mobOptsBtn" title="Opciones">⋮</button>
       <button class="btn-primary" id="newTramiteBtn">+ Nuevo</button>
     </div>
   </header>
 
-  <!-- Bottom sheet opciones móvil -->
   <div class="mob-sheet-overlay" id="mobSheetOverlay"></div>
   <div class="mob-sheet" id="mobSheet">
     <div class="mob-sheet-handle"></div>
     <div class="mob-sheet-content">
       <p class="mob-sheet-label">Ordenar por</p>
       <select id="sortSelectMob" class="mob-sheet-select">
-        <option value="vencimiento">↑ Vencimiento</option>
-        <option value="seguimiento">↑ Próx. seguimiento</option>
-        <option value="mixto">↑ Más urgente</option>
-        <option value="abogado">Abogado A–Z</option>
-        <option value="numero">Número ↑</option>
+        <option value="vencimiento">↑ Vencimiento</option><option value="seguimiento">↑ Próx. seguimiento</option>
+        <option value="mixto">↑ Más urgente</option><option value="abogado">Abogado A–Z</option><option value="numero">Número ↑</option>
       </select>
       <p class="mob-sheet-label" style="margin-top:16px">Columnas</p>
       <div class="mob-cols-row">
@@ -153,32 +101,43 @@
   <main class="main-content">
 
     <section class="view active" id="view-all">
-      <div class="tramite-list cols-1" id="tramiteList"></div>
-      <div class="empty-state" id="emptyAll">
-        <div class="empty-icon">📋</div>
-        <p>No hay trámites. ¡Crea el primero!</p>
-      </div>
+      <div class="tramite-list" id="tramiteList"></div>
+      <div class="empty-state" id="emptyAll"><div class="empty-icon">📋</div><p>No hay trámites. ¡Crea el primero!</p></div>
     </section>
 
     <section class="view" id="view-today">
       <p class="view-desc">Trámites con seguimiento o vencimiento para hoy o con fecha ya vencida.</p>
-      <div class="tramite-list cols-1" id="todayList"></div>
-      <div class="empty-state" id="emptyToday">
-        <div class="empty-icon">✅</div>
-        <p>¡Todo al día! No hay trámites urgentes.</p>
+      <div class="tramite-list" id="todayList"></div>
+      <div class="empty-state" id="emptyToday"><div class="empty-icon">✅</div><p>¡Todo al día!</p></div>
+    </section>
+
+    <!-- VISTA CALENDARIO -->
+    <section class="view" id="view-calendar">
+      <div class="cal-toolbar">
+        <button class="btn-icon cal-nav" id="calPrev">‹</button>
+        <h2 class="cal-month-title" id="calMonthTitle"></h2>
+        <button class="btn-icon cal-nav" id="calNext">›</button>
+        <button class="btn-secondary cal-today-btn" id="calTodayBtn">Hoy</button>
+      </div>
+      <div class="cal-weekdays">
+        <div>Lun</div><div>Mar</div><div>Mié</div><div>Jue</div><div>Vie</div><div>Sáb</div><div>Dom</div>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+      <div class="cal-legend">
+        <span class="cal-dot overdue"></span>Vencido
+        <span class="cal-dot today"></span>Hoy
+        <span class="cal-dot upcoming"></span>Vencimiento
+        <span class="cal-dot tarea"></span>Tarea
       </div>
     </section>
 
     <section class="view" id="view-finished">
       <p class="view-desc">Trámites terminados. Se eliminan automáticamente a los 30 días.</p>
-      <div class="tramite-list cols-1" id="finishedList"></div>
-      <div class="empty-state" id="emptyFinished">
-        <div class="empty-icon">🗂️</div>
-        <p>No hay trámites terminados.</p>
-      </div>
+      <div class="tramite-list" id="finishedList"></div>
+      <div class="empty-state" id="emptyFinished"><div class="empty-icon">🗂️</div><p>No hay trámites terminados.</p></div>
     </section>
 
-    <!-- Vista: Configuración -->
+    <!-- VISTA CONFIGURACIÓN -->
     <section class="view" id="view-config">
       <div class="config-card">
         <h2>Configuración</h2>
@@ -199,11 +158,18 @@
             </div>
           </div>
           <p class="config-hint"><strong>Expandir</strong> abre la tarjeta hacia abajo. <strong>Ventana modal</strong> abre el panel central.</p>
+          <div class="config-row" style="margin-top:14px">
+            <label class="autoreq-toggle-label">
+              <div class="switch-wrap"><input type="checkbox" id="diasRestantesToggle" /><span class="switch-slider"></span></div>
+              Mostrar días restantes en tarjetas
+            </label>
+          </div>
+          <p class="config-hint">Muestra cuántos días faltan (o han pasado) junto a la fecha de vencimiento.</p>
         </div>
 
         <div class="config-section">
           <h3>Abogados</h3>
-          <p class="config-hint" style="margin-bottom:10px">Edita el nombre y color de cada abogado. Puedes añadir o eliminar abogados.</p>
+          <p class="config-hint" style="margin-bottom:10px">Edita el nombre y color de cada abogado.</p>
           <div id="abogadosList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"></div>
           <div class="config-row" style="margin-top:4px;flex-wrap:wrap;gap:8px">
             <input type="text" id="newAbNombre" placeholder="Nombre del nuevo abogado…" style="flex:1;min-width:160px" />
@@ -216,21 +182,9 @@
           <h3>Colores de barra de progreso</h3>
           <p class="config-hint">Los tres segmentos de la barra superior de cada tarjeta.</p>
           <div class="bar-colors-grid">
-            <div class="bar-color-row">
-              <div class="bar-segment-preview" id="barPreview1"></div>
-              <label>Análisis</label>
-              <input type="color" id="colorBar1" class="color-picker" />
-            </div>
-            <div class="bar-color-row">
-              <div class="bar-segment-preview" id="barPreview2"></div>
-              <label>Cumplimiento</label>
-              <input type="color" id="colorBar2" class="color-picker" />
-            </div>
-            <div class="bar-color-row">
-              <div class="bar-segment-preview" id="barPreview3"></div>
-              <label>Terminado</label>
-              <input type="color" id="colorBar3" class="color-picker" />
-            </div>
+            <div class="bar-color-row"><div class="bar-segment-preview" id="barPreview1"></div><label>Análisis</label><input type="color" id="colorBar1" class="color-picker" /></div>
+            <div class="bar-color-row"><div class="bar-segment-preview" id="barPreview2"></div><label>Cumplimiento</label><input type="color" id="colorBar2" class="color-picker" /></div>
+            <div class="bar-color-row"><div class="bar-segment-preview" id="barPreview3"></div><label>Terminado</label><input type="color" id="colorBar3" class="color-picker" /></div>
           </div>
           <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
             <button class="btn-primary" id="saveBarColorsBtn">Guardar colores</button>
@@ -248,37 +202,25 @@
           </div>
         </div>
 
-        <!-- Tarea automática al cumplimiento -->
         <div class="config-section">
           <h3>Tarea automática al marcar cumplimiento</h3>
-          <p class="config-hint" style="margin-bottom:12px">Cuando marcas el check de cumplimiento en un trámite, JuriTask puede crear automáticamente una tarea de seguimiento.</p>
+          <p class="config-hint" style="margin-bottom:12px">JuriTask puede crear automáticamente una tarea de seguimiento al marcar el check de cumplimiento.</p>
           <div class="config-row" style="margin-bottom:14px">
             <label class="autoreq-toggle-label">
-              <div class="switch-wrap">
-                <input type="checkbox" id="autoReqToggle" />
-                <span class="switch-slider"></span>
-              </div>
+              <div class="switch-wrap"><input type="checkbox" id="autoReqToggle" /><span class="switch-slider"></span></div>
               Activar tarea automática
             </label>
           </div>
           <div id="autoReqFields" style="display:flex;flex-direction:column;gap:10px">
-            <div class="config-row">
-              <label>Texto</label>
-              <input type="text" id="autoReqTexto" placeholder="Ej: 1er req" style="flex:1;min-width:120px" />
-            </div>
-            <div class="config-row">
-              <label>Días después</label>
-              <input type="number" id="autoReqDias" min="1" max="365" style="width:80px" />
-              <span style="font-size:13px;color:var(--text-muted)">días desde la fecha de marcado</span>
-            </div>
+            <div class="config-row"><label>Texto</label><input type="text" id="autoReqTexto" placeholder="Ej: 1er req" style="flex:1;min-width:120px" /></div>
+            <div class="config-row"><label>Días después</label><input type="number" id="autoReqDias" min="1" max="365" style="width:80px" /><span style="font-size:13px;color:var(--text-muted)">días desde la fecha de marcado</span></div>
             <button class="btn-primary" id="saveAutoReqBtn" style="align-self:flex-start">Guardar</button>
           </div>
         </div>
 
-        <!-- Importar / Exportar -->
         <div class="config-section">
           <h3>Datos</h3>
-          <p class="config-hint" style="margin-bottom:12px">Exporta o importa todos los datos de JuriTask en formato JSON.</p>
+          <p class="config-hint" style="margin-bottom:12px">Exporta o importa todos los datos en formato JSON.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn-primary" id="exportBtn">↑ Exportar JSON</button>
             <button class="btn-secondary" id="importBtn">↓ Importar JSON</button>
@@ -292,7 +234,6 @@
         </div>
       </div>
     </section>
-
   </main>
 </div>
 
@@ -304,40 +245,17 @@
       <button class="modal-close" id="modalClose">✕</button>
     </div>
     <div class="modal-body">
-
-      <!-- Tipo de trámite -->
       <div class="tipo-toggle-row">
         <button class="tipo-btn active" id="tipoBtnAbogado" data-tipo="abogado">⚖ Trámite de abogado</button>
         <button class="tipo-btn" id="tipoBtnPropio" data-tipo="propio">👤 Trámite propio</button>
       </div>
-
       <div class="form-grid" style="margin-top:14px">
-        <div class="form-group">
-          <label>Número / referencia *</label>
-          <input type="text" id="fNumero" placeholder="Ej: 64554" autocomplete="off" />
-        </div>
-        <div class="form-group">
-          <label>Módulo *</label>
-          <select id="fModulo"></select>
-        </div>
-        <div class="form-group full">
-          <label>Descripción breve *</label>
-          <input type="text" id="fDescripcion" placeholder="Descripción del trámite" />
-        </div>
-        <div class="form-group" id="fAbogadoWrap">
-          <label>Abogado responsable *</label>
-          <select id="fAbogado">
-            <option value="abogado1" id="fAbog1Opt">Abogado 1</option>
-            <option value="abogado2" id="fAbog2Opt">Abogado 2</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Fecha de vencimiento *</label>
-          <input type="date" id="fFechaVencimiento" />
-        </div>
+        <div class="form-group"><label>Número / referencia *</label><input type="text" id="fNumero" placeholder="Ej: 64554" autocomplete="off" /></div>
+        <div class="form-group"><label>Módulo *</label><select id="fModulo"></select></div>
+        <div class="form-group full"><label>Descripción breve *</label><input type="text" id="fDescripcion" placeholder="Descripción del trámite" /></div>
+        <div class="form-group" id="fAbogadoWrap"><label>Abogado responsable *</label><select id="fAbogado"></select></div>
+        <div class="form-group"><label>Fecha de vencimiento *</label><input type="date" id="fFechaVencimiento" /></div>
       </div>
-
-      <!-- Sección tarea inicial (oculta) -->
       <div class="modal-section">
         <div class="nueva-tarea-header">
           <button class="btn-nueva-tarea" id="btnMostrarTareaModal" type="button">＋ Nueva tarea</button>
@@ -345,23 +263,12 @@
         </div>
         <div class="nueva-tarea-fields" id="nuevaTareaFieldsModal" style="display:none">
           <div class="form-grid" style="margin-top:10px">
-            <div class="form-group full">
-              <label>Descripción de la tarea</label>
-              <input type="text" id="fTareaDesc" placeholder="¿Qué se debe hacer?" />
-            </div>
-            <div class="form-group">
-              <label>Fecha límite</label>
-              <input type="date" id="fTareaFecha" />
-            </div>
-            <div class="form-group" id="fTareaRespWrap">
-              <label>Responsable</label>
-              <select id="fTareaResp"></select>
-            </div>
+            <div class="form-group full"><label>Descripción de la tarea</label><input type="text" id="fTareaDesc" placeholder="¿Qué se debe hacer?" /></div>
+            <div class="form-group"><label>Fecha límite</label><input type="date" id="fTareaFecha" /></div>
+            <div class="form-group" id="fTareaRespWrap"><label>Responsable</label><select id="fTareaResp"></select></div>
           </div>
         </div>
       </div>
-
-      <!-- Sección nota inicial (oculta) -->
       <div class="modal-section">
         <div class="nueva-tarea-header">
           <button class="btn-nueva-tarea" id="btnMostrarNotaModal" type="button">📝 Agregar nota</button>
@@ -369,14 +276,10 @@
         </div>
         <div class="nueva-tarea-fields" id="nuevaNotaFieldsModal" style="display:none">
           <div class="form-grid" style="margin-top:10px">
-            <div class="form-group full">
-              <label>Nota</label>
-              <textarea id="fNota" rows="3" placeholder="Escribe una nota inicial sobre este trámite…"></textarea>
-            </div>
+            <div class="form-group full"><label>Nota</label><textarea id="fNota" rows="3" placeholder="Escribe una nota inicial…"></textarea></div>
           </div>
         </div>
       </div>
-
     </div>
     <div class="modal-footer">
       <button class="btn-secondary" id="cancelModal">Cancelar</button>
@@ -385,18 +288,23 @@
   </div>
 </div>
 
-<!-- ==================== MODAL DETALLE ==================== -->
+<!-- ==================== MODAL DETALLE ====================
+     IMPORTANTE: editDetailBtn y deleteDetailBtn usan onclick directo
+     para evitar cualquier problema de bubbling o timing con el overlay.
+     La función _detailAction(cmd) lee el id desde data-id en el modal.
+-->
 <div class="modal-overlay" id="detailOverlay">
-  <div class="modal modal-large" id="detailModal">
+  <div class="modal modal-large" id="detailModal" data-id="">
     <div class="modal-header">
       <div>
         <h2 id="detailTitle">Trámite #</h2>
         <p id="detailSubtitle" class="modal-subtitle"></p>
       </div>
       <div class="modal-header-actions">
-        <button class="btn-icon" id="editDetailBtn" title="Editar">✎</button>
-        <button class="btn-icon btn-icon-danger" id="deleteDetailBtn" title="Eliminar">🗑</button>
-        <button class="modal-close" id="detailClose">✕</button>
+        <button class="btn-icon" title="Duplicar trámite" onclick="_detailAction('duplicate')">⧉</button>
+        <button class="btn-icon" title="Editar trámite" onclick="_detailAction('edit')">✎</button>
+        <button class="btn-icon btn-icon-danger" title="Eliminar trámite" onclick="_detailAction('delete')">🗑</button>
+        <button class="modal-close" onclick="closeDetail()">✕</button>
       </div>
     </div>
     <div class="modal-body detail-body" id="detailModalBody"></div>
@@ -407,10 +315,7 @@
 <div class="modal-overlay" id="reportOverlay">
   <div class="modal modal-large" id="reportModal">
     <div class="modal-header">
-      <div>
-        <h2>📋 Reporte del día</h2>
-        <p class="modal-subtitle" id="reportSubtitle"></p>
-      </div>
+      <div><h2>📋 Reporte del día</h2><p class="modal-subtitle" id="reportSubtitle"></p></div>
       <div class="modal-header-actions">
         <button class="btn-icon" id="reportPrintBtn" title="Imprimir / PDF">🖨</button>
         <button class="btn-icon" id="reportCopyBtn" title="Copiar texto">⧉</button>
@@ -418,14 +323,10 @@
       </div>
     </div>
     <div class="modal-body">
-      <!-- Filtro por abogado -->
       <div class="report-filter-row">
         <label class="report-filter-label">Filtrar por abogado:</label>
         <div class="toggle-group" id="reportFilterGroup">
           <button class="toggle-btn active" data-abogado="">Todos</button>
-          <button class="toggle-btn" data-abogado="abogado1" id="reportBtn1">Abogado 1</button>
-          <button class="toggle-btn" data-abogado="abogado2" id="reportBtn2">Abogado 2</button>
-          <button class="toggle-btn" data-abogado="yo">Yo mismo</button>
         </div>
       </div>
       <div id="reportContent"></div>
@@ -444,9 +345,7 @@
   </div>
 </div>
 
-<!-- ==================== TOAST ==================== -->
 <div class="toast" id="toast"></div>
-
 <script src="script.js"></script>
 </body>
 </html>
