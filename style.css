@@ -316,8 +316,51 @@ body {
 .btn-card-tarea:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
 
 /* ==================== PANEL EXPANDIDO ==================== */
-.expand-panel { border-top: 1px solid var(--border-light); background: var(--surface-2); border-radius: 0 0 var(--radius) var(--radius); overflow: hidden; max-height: 0; opacity: 0; transition: max-height 0.34s cubic-bezier(0.4,0,0.2,1), opacity 0.22s ease; }
-.expand-panel.open { max-height: 3600px; opacity: 1; }
+.tramite-list { position: relative; }  /* needed for absolute expand overlay */
+
+/* Panel en 1 columna: se expande inline (empuja hacia abajo normalmente) */
+.tramite-list.cols-1 .expand-panel {
+  position: relative;
+  border-top: 1px solid var(--border-light);
+  background: var(--surface-2);
+  border-radius: 0 0 var(--radius) var(--radius);
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.34s cubic-bezier(0.4,0,0.2,1), opacity 0.22s ease;
+}
+.tramite-list.cols-1 .expand-panel.open { max-height: 3600px; opacity: 1; }
+
+/* Panel en 2+ columnas: overlay absoluto que no desplaza otras tarjetas */
+.tramite-list.cols-2 .expand-panel,
+.tramite-list.cols-3 .expand-panel {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  z-index: 50;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: max-height 0.34s cubic-bezier(0.4,0,0.2,1), opacity 0.22s ease;
+}
+.tramite-list.cols-2 .expand-panel.open,
+.tramite-list.cols-3 .expand-panel.open {
+  max-height: 3600px;
+  opacity: 1;
+  pointer-events: all;
+}
+
+/* card-wrapper en multi-col: no añade altura cuando está expandido */
+.tramite-list.cols-2 .card-wrapper,
+.tramite-list.cols-3 .card-wrapper {
+  position: static;  /* override para que el absolute se posicione en el list */
+}
+
 .expand-panel-inner { padding: 0; }
 .expand-actions { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border-light); background: var(--surface); justify-content: flex-end; }
 
@@ -503,9 +546,9 @@ body {
 
 /* ==================== CONFIRM DIALOG ==================== */
 .confirm-overlay {
-  position: fixed; inset: 0; z-index: 900;
+  position: fixed; inset: 0; z-index: 9999;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,.45);
+  background: rgba(0,0,0,.55);
   opacity: 0; pointer-events: none;
   transition: opacity 0.15s ease;
 }
@@ -525,7 +568,15 @@ body {
 .confirm-btns { display: flex; gap: 10px; justify-content: center; }
 .confirm-btns .btn-danger { border-radius: 20px; }
 
-/* ==================== TOGGLE SWITCH ==================== */
+/* ==================== ABOGADOS DINÁMICOS ==================== */
+.abogado-config-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+.abogado-num { font-size: 12px; color: var(--text-muted); min-width: 18px; text-align: right; flex-shrink: 0; }
+.ab-nombre { flex: 1; min-width: 120px; }
+.ab-color { width: 34px; height: 34px; padding: 2px; border-radius: 6px; flex-shrink: 0; }
+.ab-preview { width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; }
+.ab-delete { flex-shrink: 0; }
+
+/* ==================== SWITCH TOGGLE ==================== */
 .autoreq-toggle-label { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px; color: var(--text-primary); font-weight: 500; }
 .switch-wrap { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
 .switch-wrap input { opacity: 0; width: 0; height: 0; position: absolute; }

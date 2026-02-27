@@ -35,10 +35,10 @@ function applyTheme(id) {
 // DEFAULTS
 // ============================================================
 const DEFAULT_CONFIG = {
-  abogado1: 'Abogado 1',
-  abogado2: 'Abogado 2',
-  colorAbogado1: '#15803d',
-  colorAbogado2: '#1d4ed8',
+  abogados: [
+    { key: 'abogado1', nombre: 'Abogado 1', color: '#15803d' },
+    { key: 'abogado2', nombre: 'Abogado 2', color: '#1d4ed8' },
+  ],
   colorBar1: '#f59e0b',
   colorBar2: '#3b5bdb',
   colorBar3: '#10b981',
@@ -69,12 +69,44 @@ const DEFAULT_CONFIG = {
 const STATE = {
   tramites: [],
   order: [],
-  config: { ...DEFAULT_CONFIG, modulos: [...DEFAULT_CONFIG.modulos] },
+  config: {
+    ...DEFAULT_CONFIG,
+    abogados: DEFAULT_CONFIG.abogados.map(a => ({ ...a })),
+    modulos: [...DEFAULT_CONFIG.modulos],
+  },
 };
 
 let currentDetailId = null;
 let isEditing = false;
 let editingId = null;
+
+// ============================================================
+// HISTORIAL DE ACCIONES (Ctrl+Z)
+// ============================================================
+const HISTORY_MAX = 30;
+const _history = [];
+let _undoing = false;
+
+function pushHistory(label) {
+  if (_undoing) return;
+  _history.push({
+    label,
+    tramites: JSON.parse(JSON.stringify(STATE.tramites)),
+    order:    JSON.parse(JSON.stringify(STATE.order)),
+  });
+  if (_history.length > HISTORY_MAX) _history.shift();
+}
+
+function undo() {
+  if (!_history.length) { showToast('No hay acciones para deshacer.'); return; }
+  _undoing = true;
+  const snap = _history.pop();
+  STATE.tramites = snap.tramites;
+  STATE.order    = snap.order;
+  saveAll(); renderAll();
+  showToast(`↩ Deshecho: ${snap.label}`);
+  _undoing = false;
+}
 
 // ============================================================
 // PERSISTENCIA
@@ -121,7 +153,20 @@ function loadAll() {
     const o = localStorage.getItem(KEYS.order) || localStorage.getItem(OLD.order);
     if (o) STATE.order = JSON.parse(o);
     const c = localStorage.getItem(KEYS.config) || localStorage.getItem(OLD.config);
-    if (c) STATE.config = Object.assign({ ...DEFAULT_CONFIG, modulos: [...DEFAULT_CONFIG.modulos] }, JSON.parse(c));
+    if (c) {
+      const saved = JSON.parse(c);
+      STATE.config = Object.assign(
+        { ...DEFAULT_CONFIG, abogados: DEFAULT_CONFIG.abogados.map(a=>({...a})), modulos: [...DEFAULT_CONFIG.modulos] },
+        saved
+      );
+      // Migrar formato antiguo (abogado1/abogado2 sueltos → array abogados)
+      if (!STATE.config.abogados || !STATE.config.abogados.length) {
+        STATE.config.abogados = [
+          { key: 'abogado1', nombre: saved.abogado1 || 'Abogado 1', color: saved.colorAbogado1 || '#15803d' },
+          { key: 'abogado2', nombre: saved.abogado2 || 'Abogado 2', color: saved.colorAbogado2 || '#1d4ed8' },
+        ];
+      }
+    }
     STATE.tramites.forEach(migrateTramite);
   } catch (e) { console.error('Error cargando datos:', e); }
 }
@@ -146,6 +191,14 @@ function formatDate(s) {
   if (!s) return '—';
   const [y, m, d] = s.split('-');
   return `${d}/${m}/${y}`;
+}
+
+/** Primera letra mayúscula, resto minúsculas. No modifica números ni vacíos. */
+function sentenceCase(str) {
+  if (!str) return str;
+  const s = str.trim();
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
 /** Clase CSS para coloreado de fechas:
@@ -173,16 +226,14 @@ function proximaFechaSeguimiento(t) {
 }
 
 function abogadoName(key) {
-  if (key === 'abogado1') return STATE.config.abogado1;
-  if (key === 'abogado2') return STATE.config.abogado2;
-  // "yo", "auxiliar", "propio" → todos son "Yo mismo"
-  return 'Yo mismo';
+  if (!key || key === 'yo') return 'Yo mismo';
+  const a = (STATE.config.abogados || []).find(x => x.key === key);
+  return a ? a.nombre : key;
 }
 
 function abogadoColor(key) {
-  if (key === 'abogado1') return STATE.config.colorAbogado1 || '#15803d';
-  if (key === 'abogado2') return STATE.config.colorAbogado2 || '#1d4ed8';
-  return '#9333ea';
+  const a = (STATE.config.abogados || []).find(x => x.key === key);
+  return a ? a.color : '#9333ea';
 }
 
 function hexToRgba(hex, alpha) {
@@ -217,8 +268,9 @@ function purgeExpiredFinished() {
 
 function applyCssColors() {
   const s = document.documentElement.style;
-  s.setProperty('--color-abogado1', STATE.config.colorAbogado1 || '#15803d');
-  s.setProperty('--color-abogado2', STATE.config.colorAbogado2 || '#1d4ed8');
+  (STATE.config.abogados || []).forEach((a, i) => {
+    s.setProperty(`--color-abogado${i + 1}`, a.color);
+  });
   s.setProperty('--bar-color-1', STATE.config.colorBar1 || '#f59e0b');
   s.setProperty('--bar-color-2', STATE.config.colorBar2 || '#3b5bdb');
   s.setProperty('--bar-color-3', STATE.config.colorBar3 || '#10b981');
@@ -271,20 +323,64 @@ function populateModuloSelects() {
   });
 }
 
-function updateAbogadoNames() {
-  const n1 = STATE.config.abogado1, n2 = STATE.config.abogado2;
-  [['filterAbogado1Opt',n1],['filterAbogado2Opt',n2],
-   ['filterResp1Opt',n1],['filterResp2Opt',n2],
-   ['fAbog1Opt',n1],['fAbog2Opt',n2],
-   ['reportBtn1',n1],['reportBtn2',n2]
-  ].forEach(([elId, val]) => { const el = document.getElementById(elId); if (el) el.textContent = val; });
-}
+/** Reconstruye dinámicamente todos los selects/filtros que dependen de la lista de abogados */
+function updateAbogadoSelects() {
+  const abogados = STATE.config.abogados || [];
 
-/** Opciones de responsable: abogadoX + "Yo mismo" */
+  // Sidebar: filtro por abogado
+  const fAb = document.getElementById('filterAbogado');
+  if (fAb) {
+    const cur = fAb.value;
+    fAb.innerHTML = '<option value="">Todos</option>';
+    abogados.forEach(a => { const o = document.createElement('option'); o.value = a.key; o.textContent = a.nombre; fAb.appendChild(o); });
+    if ([...fAb.options].some(o => o.value === cur)) fAb.value = cur;
+  }
+
+  // Sidebar: filtro por responsable de seguimiento
+  const fResp = document.getElementById('filterResponsable');
+  if (fResp) {
+    const cur = fResp.value;
+    fResp.innerHTML = '<option value="">Todos</option>';
+    abogados.forEach(a => { const o = document.createElement('option'); o.value = a.key; o.textContent = a.nombre; fResp.appendChild(o); });
+    const oYo = document.createElement('option'); oYo.value = 'yo'; oYo.textContent = 'Yo mismo'; fResp.appendChild(oYo);
+    if ([...fResp.options].some(o => o.value === cur)) fResp.value = cur;
+  }
+
+  // Modal nuevo trámite: select abogado
+  const fAbM = document.getElementById('fAbogado');
+  if (fAbM) {
+    const cur = fAbM.value;
+    fAbM.innerHTML = '';
+    abogados.forEach(a => { const o = document.createElement('option'); o.value = a.key; o.textContent = a.nombre; fAbM.appendChild(o); });
+    fAbM.value = ([...fAbM.options].some(o => o.value === cur)) ? cur : (abogados[0]?.key || '');
+  }
+
+  // Reporte: botones de filtro (dinámicos)
+  const rg = document.getElementById('reportFilterGroup');
+  if (rg) {
+    rg.innerHTML = '<button class="toggle-btn active" data-abogado="">Todos</button>';
+    abogados.forEach(a => {
+      const btn = document.createElement('button');
+      btn.className = 'toggle-btn'; btn.dataset.abogado = a.key; btn.textContent = a.nombre;
+      rg.appendChild(btn);
+    });
+    const btnYo = document.createElement('button');
+    btnYo.className = 'toggle-btn'; btnYo.dataset.abogado = 'yo'; btnYo.textContent = 'Yo mismo';
+    rg.appendChild(btnYo);
+    reportFiltroAbogado = '';
+  }
+
+  syncTareaRespSelect();
+}
+// Alias para compatibilidad con llamadas existentes
+const updateAbogadoNames = updateAbogadoSelects;
+
+/** Opciones de responsable para una tarea: abogado del trámite + "Yo mismo" */
 function buildRespOptions(tipoTramite, abogadoKey, selectedValue) {
   const opts = [];
-  if (tipoTramite === 'abogado') {
-    opts.push({ value: abogadoKey, label: abogadoName(abogadoKey) });
+  if (tipoTramite === 'abogado' && abogadoKey) {
+    const a = (STATE.config.abogados || []).find(x => x.key === abogadoKey);
+    if (a) opts.push({ value: a.key, label: a.nombre });
   }
   opts.push({ value: 'yo', label: 'Yo mismo' });
   return opts.map(o =>
@@ -440,39 +536,31 @@ function bindDetailContent(t, container, expandWrapper) {
 
   if (!esP) {
     container.querySelector(`#${p}_analisis`).addEventListener('change', e => {
+      pushHistory(e.target.checked ? 'Marcar análisis' : 'Desmarcar análisis');
       t.gestion.analisis = e.target.checked;
-      saveAll();
-      // Re-render solo la card (no cierra el panel)
-      refreshCardOnly(t);
+      saveAll(); refreshCardOnly(t);
     });
 
     container.querySelector(`#${p}_cumplimiento`).addEventListener('change', e => {
+      pushHistory(e.target.checked ? 'Marcar cumplimiento' : 'Desmarcar cumplimiento');
       t.gestion.cumplimiento = e.target.checked;
-      // Actualizar badge etapa
       const badge = container.querySelector(`#${p}_etapabadge`);
       const etapa = computeEtapa(t);
       if (badge) {
         badge.textContent = etapa==='seguimiento' ? 'Seguimiento' : 'Gestión';
         badge.className = 'etapa-badge' + (etapa==='seguimiento' ? ' seguimiento' : '');
       }
-      // Mostrar/ocultar sección vencimiento SIN borrar la fecha
       const vencSec = container.querySelector(`#${p}_vencSection`);
       if (vencSec) vencSec.classList.toggle('hidden-venc', e.target.checked);
-
-      // Ajuste 12: crear tarea "1er req" al marcar cumplimiento
       if (e.target.checked) {
         crearTareaRequerimiento(t);
-        // Re-renderizar lista de actividades
         renderActividadesIn(t, container.querySelector(`#${p}_actividades`), container, expandWrapper);
-        showToast('✓ Cumplimiento marcado. Tarea "1er req" creada.');
+        showToast('✓ Cumplimiento marcado. Tarea automática creada.');
       }
-
-      saveAll();
-      refreshCardOnly(t);
+      saveAll(); refreshCardOnly(t);
     });
   }
 
-  // Seguimiento
   renderActividadesIn(t, container.querySelector(`#${p}_actividades`), container, expandWrapper);
 
   const btnNueva = container.querySelector(`#${p}_btnNuevaTarea`);
@@ -480,10 +568,7 @@ function bindDetailContent(t, container, expandWrapper) {
   btnNueva.addEventListener('click', () => {
     const open = formNueva.style.display !== 'none';
     formNueva.style.display = open ? 'none' : 'block';
-    if (!open) {
-      // Ajuste 9: focus en campo descripción
-      setTimeout(() => container.querySelector(`#${p}_newActDesc`)?.focus(), 60);
-    }
+    if (!open) setTimeout(() => container.querySelector(`#${p}_newActDesc`)?.focus(), 60);
   });
   container.querySelector(`#${p}_cancelAct`).addEventListener('click', () => { formNueva.style.display = 'none'; });
   container.querySelector(`#${p}_addAct`).addEventListener('click', () => {
@@ -491,31 +576,31 @@ function bindDetailContent(t, container, expandWrapper) {
     const fecha = container.querySelector(`#${p}_newActFecha`).value;
     const resp  = container.querySelector(`#${p}_newActResp`).value;
     if (!desc) { showToast('Escribe una descripción.'); return; }
-    t.seguimiento.push({ descripcion: desc, fecha, responsable: resp, estado: 'pendiente' });
+    pushHistory('Agregar tarea');
+    t.seguimiento.push({ descripcion: sentenceCase(desc), fecha, responsable: resp, estado: 'pendiente' });
     container.querySelector(`#${p}_newActDesc`).value = '';
     container.querySelector(`#${p}_newActFecha`).value = '';
     formNueva.style.display = 'none';
-    saveAll();
-    refreshCardOnly(t);
+    saveAll(); refreshCardOnly(t);
     renderActividadesIn(t, container.querySelector(`#${p}_actividades`), container, expandWrapper);
     showToast('Tarea agregada.');
   });
 
-  // Vencimiento (la fecha NO se borra al ocultar)
   container.querySelector(`#${p}_saveVenc`).addEventListener('click', () => {
     const fecha = container.querySelector(`#${p}_vencimiento`).value;
     if (!fecha) { showToast('Selecciona una fecha.'); return; }
+    pushHistory('Cambiar fecha de vencimiento');
     t.fechaVencimiento = fecha;
     saveAll(); refreshCardOnly(t);
     showToast('Fecha de vencimiento actualizada.');
   });
 
-  // Notas
   renderNotasIn(t, container.querySelector(`#${p}_notas`));
   container.querySelector(`#${p}_addNota`).addEventListener('click', () => {
     const texto = container.querySelector(`#${p}_newNota`).value.trim();
     if (!texto) { showToast('Escribe el texto de la nota.'); return; }
-    t.notas.push({ texto, fecha: new Date().toISOString() });
+    pushHistory('Agregar nota');
+    t.notas.push({ texto: sentenceCase(texto), fecha: new Date().toISOString() });
     container.querySelector(`#${p}_newNota`).value = '';
     saveAll(); renderNotasIn(t, container.querySelector(`#${p}_notas`));
     showToast('Nota agregada.');
@@ -612,20 +697,21 @@ function renderActividadesIn(t, listEl, container, expandWrapper) {
       <button class="actividad-delete" title="Eliminar">✕</button>`;
 
     div.querySelector('input[type="checkbox"]').addEventListener('change', e => {
+      pushHistory(e.target.checked ? 'Marcar tarea realizada' : 'Desmarcar tarea');
       t.seguimiento[i].estado = e.target.checked ? 'realizado' : 'pendiente';
-      saveAll();
-      // Ajuste 11: NO cerrar el panel, solo re-renderizar la lista
-      refreshCardOnly(t);
+      saveAll(); refreshCardOnly(t);
       renderActividadesIn(t, listEl, container, expandWrapper);
     });
 
     div.querySelector('input[type="date"]').addEventListener('change', e => {
+      pushHistory('Cambiar fecha de tarea');
       t.seguimiento[i].fecha = e.target.value;
       saveAll(); refreshCardOnly(t);
     });
 
     div.querySelector('.actividad-delete').addEventListener('click', () => {
       if (confirm('¿Eliminar esta tarea?')) {
+        pushHistory('Eliminar tarea');
         t.seguimiento.splice(i, 1);
         saveAll(); refreshCardOnly(t);
         renderActividadesIn(t, listEl, container, expandWrapper);
@@ -648,7 +734,7 @@ function renderNotasIn(t, listEl) {
       <div class="nota-fecha">${formatDatetime(nota.fecha)}</div>
       <button class="nota-delete">✕</button>`;
     div.querySelector('.nota-delete').addEventListener('click', () => {
-      if (confirm('¿Eliminar esta nota?')) { t.notas.splice(idx, 1); saveAll(); renderNotasIn(t, listEl); }
+      if (confirm('¿Eliminar esta nota?')) { pushHistory('Eliminar nota'); t.notas.splice(idx, 1); saveAll(); renderNotasIn(t, listEl); }
     });
     listEl.appendChild(div);
   });
@@ -707,6 +793,7 @@ function openDetailExpand(t) {
     actBar.querySelector('[data-action="edit"]').addEventListener('click', () => { closeAllExpands(); openModal(t); });
     actBar.querySelector('[data-action="delete"]').addEventListener('click', () => {
       if (confirm('¿Eliminar este trámite?')) {
+        pushHistory(`Eliminar trámite #${t.numero}`);
         STATE.tramites = STATE.tramites.filter(x => x.id !== t.id);
         STATE.order = STATE.order.filter(id => id !== t.id);
         saveAll(); closeAllExpands(); renderAll(); showToast('Trámite eliminado.');
@@ -722,6 +809,21 @@ function openDetailExpand(t) {
     panel.appendChild(inner);
     wrapper.appendChild(panel);
   }
+
+  // En multi-columna: posicionar el panel como overlay absoluto en el list
+  // para no desplazar las otras tarjetas
+  const list = wrapper.closest('.tramite-list');
+  const cols = STATE.config.columns || 1;
+  if (cols > 1 && list) {
+    const wrapperRect = wrapper.getBoundingClientRect();
+    const listRect = list.getBoundingClientRect();
+    // top = posición del wrapper dentro del list + su altura (aparece debajo del card)
+    const topRelToList = wrapperRect.bottom - listRect.top + list.scrollTop;
+    panel.style.top = topRelToList + 'px';
+  } else {
+    panel.style.top = '';
+  }
+
   requestAnimationFrame(() => requestAnimationFrame(() => panel.classList.add('open')));
 }
 
@@ -776,10 +878,7 @@ function buildCard(t) {
 
   const etapaTag = t.terminado
     ? `<span class="tag tag-terminado">Terminado</span>`
-    : esP ? ''
-    : etapa === 'seguimiento'
-      ? `<span class="tag tag-etapa-seguimiento">Seguimiento</span>`
-      : `<span class="tag tag-etapa-gestion">Gestión</span>`;
+    : '';
 
   const tareasPendientes = (t.seguimiento || []).filter(s => s.estado === 'pendiente');
   const seguimientoHtml = buildSeguimientoHtml(tareasPendientes);
@@ -874,13 +973,15 @@ function buildCard(t) {
 
     if (!esP) {
       card.querySelector('.card-check-analisis').addEventListener('change', e => {
+        pushHistory(e.target.checked ? 'Marcar análisis' : 'Desmarcar análisis');
         t.gestion.analisis = e.target.checked; saveAll(); renderAll();
       });
       card.querySelector('.card-check-cumplimiento').addEventListener('change', e => {
+        pushHistory(e.target.checked ? 'Marcar cumplimiento' : 'Desmarcar cumplimiento');
         t.gestion.cumplimiento = e.target.checked;
         if (e.target.checked) {
           crearTareaRequerimiento(t);
-          showToast('✓ Cumplimiento marcado. Tarea "1er req" creada.');
+          showToast('✓ Cumplimiento marcado. Tarea automática creada.');
         }
         saveAll(); renderAll();
       });
@@ -890,6 +991,7 @@ function buildCard(t) {
       if (!e.target.checked) return;
       e.target.checked = false;
       if (!confirm('¿Marcar este trámite como terminado?')) return;
+      pushHistory('Terminar trámite');
       t.terminado = true; t.terminadoEn = new Date().toISOString();
       saveAll(); renderAll(); showToast('Trámite terminado. ✓');
     });
@@ -916,6 +1018,7 @@ function reorder(srcId, targetId) {
   const order = getActiveOrder();
   const si = order.indexOf(srcId), ti = order.indexOf(targetId);
   if (si===-1||ti===-1) return;
+  pushHistory('Reordenar tarjetas');
   order.splice(si,1); order.splice(ti,0,srcId);
   STATE.order = order; saveAll(); renderAll();
 }
@@ -1007,54 +1110,89 @@ function renderReport() {
   const contenido = document.getElementById('reportContent');
   contenido.innerHTML = '';
 
-  // Filtrar trámites según abogado seleccionado
-  let tramites = STATE.tramites.filter(t => !t.terminado);
-  if (reportFiltroAbogado) {
-    if (reportFiltroAbogado === 'yo') {
-      tramites = tramites.filter(t =>
-        (t.seguimiento||[]).some(s => s.responsable === 'yo')
-      );
-    } else {
-      tramites = tramites.filter(t => t.abogado === reportFiltroAbogado ||
-        (t.seguimiento||[]).some(s => s.responsable === reportFiltroAbogado));
-    }
-  }
+  const filtro = reportFiltroAbogado; // '' = todos, 'yo', 'abogado1', 'abogado2', …
 
-  // Recolectar items del reporte
+  const tramitesActivos = STATE.tramites.filter(t => !t.terminado);
   const items = [];
 
-  tramites.forEach(t => {
-    // Vencimiento vencido o hoy (si cumplimiento no marcado)
+  tramitesActivos.forEach(t => {
+    const abTramite = t.abogado || null; // key del abogado registrado en el trámite
+    const esP = esPropio(t);
+
+    // ── 1. VENCIMIENTO HOY O VENCIDO ─────────────────────────
+    // El responsable es siempre el abogado del trámite (no "yo mismo")
     if (t.fechaVencimiento && !(t.gestion && t.gestion.cumplimiento) && t.fechaVencimiento <= hoy) {
-      const cls = t.fechaVencimiento < hoy ? 'overdue' : 'today';
-      items.push({
-        t, tipo: 'vencimiento', fecha: t.fechaVencimiento, cls,
-        tarea: `📅 Fecha de vencimiento: ${formatDate(t.fechaVencimiento)}`,
-      });
+      const dueño = esP ? 'yo' : abTramite;
+      if (!filtro || filtro === dueño) {
+        items.push({
+          t, tipo: 'vencimiento',
+          fecha: t.fechaVencimiento,
+          cls: t.fechaVencimiento < hoy ? 'overdue' : 'today',
+          tarea: `Fecha de vencimiento: ${formatDate(t.fechaVencimiento)}`,
+          resp: dueño,
+        });
+      }
     }
-    // Tareas pendientes con fecha vencida o hoy
-    (t.seguimiento || []).filter(s => s.estado === 'pendiente' && s.fecha && s.fecha <= hoy).forEach(s => {
-      const cls = s.fecha < hoy ? 'overdue' : 'today';
-      // Si ya hay un item de vencimiento para el mismo trámite en la misma fecha, no duplicar
-      items.push({
-        t, tipo: 'tarea', fecha: s.fecha, cls,
-        tarea: s.descripcion,
-        resp: s.responsable,
+
+    // ── 2. ANÁLISIS FALTANTE ──────────────────────────────────
+    // Solo trámites de abogado sin análisis marcado. Responsable = abogado del trámite.
+    if (!esP && !t.gestion?.analisis) {
+      const dueño = abTramite;
+      if (!filtro || filtro === dueño) {
+        items.push({
+          t, tipo: 'analisis',
+          fecha: t.fechaVencimiento || '',
+          cls: 'today',
+          tarea: 'Falta realizar análisis',
+          resp: dueño,
+        });
+      }
+    }
+
+    // ── 3. TAREAS DE SEGUIMIENTO VENCIDAS / DE HOY ───────────
+    // El responsable es el indicado en la tarea.
+    // Regla de filtro:
+    //   - resp = 'yo'      → solo aparece en filtro '' (todos) o filtro 'yo'
+    //   - resp = 'abogadoX' → solo aparece en filtro '' (todos) o filtro = ese abogado
+    (t.seguimiento || [])
+      .filter(s => s.estado === 'pendiente' && s.fecha && s.fecha <= hoy)
+      .forEach(s => {
+        const respTarea = s.responsable || 'yo';
+        const esYo = (respTarea === 'yo');
+        const mostrar = !filtro
+          || (esYo && filtro === 'yo')
+          || (!esYo && filtro === respTarea);
+        if (mostrar) {
+          items.push({
+            t, tipo: 'tarea',
+            fecha: s.fecha,
+            cls: s.fecha < hoy ? 'overdue' : 'today',
+            tarea: s.descripcion,
+            resp: respTarea,
+          });
+        }
       });
-    });
   });
 
   if (!items.length) {
-    contenido.innerHTML = '<div class="report-empty">🎉 ¡No hay vencimientos ni tareas pendientes para hoy!</div>';
+    contenido.innerHTML = '<div class="report-empty">🎉 ¡Sin novedades para hoy!</div>';
     return;
   }
 
-  // Ordenar: primero vencidos, luego hoy
-  items.sort((a, b) => a.fecha.localeCompare(b.fecha));
+  // Ordenar: vencidos primero, luego por fecha
+  items.sort((a, b) => {
+    if (a.cls !== b.cls) return a.cls === 'overdue' ? -1 : 1;
+    return (a.fecha || '').localeCompare(b.fecha || '');
+  });
 
-  // Separar en grupos
   const vencidos = items.filter(i => i.cls === 'overdue');
-  const deHoy    = items.filter(i => i.cls === 'today');
+  const deHoy    = items.filter(i => i.cls !== 'overdue');
+
+  const tipoLabel = {
+    vencimiento: '📅 Vencimiento',
+    tarea:       '📌 Tarea',
+    analisis:    '🔍 Análisis pendiente',
+  };
 
   const renderGroup = (titulo, groupItems, titleCls) => {
     if (!groupItems.length) return;
@@ -1065,18 +1203,15 @@ function renderReport() {
       const el = document.createElement('div');
       el.className = `report-item ${item.cls}`;
       const modulo = item.t.modulo || '';
-      const tipo = item.tipo === 'vencimiento' ? '📅 Vencimiento' : '📌 Tarea';
-      const respTag = item.resp
-        ? `<span class="report-item-resp">${abogadoName(item.resp)}</span>`
-        : '';
+      const respLabel = item.resp ? abogadoName(item.resp) : '';
       el.innerHTML = `
         <div class="report-item-num">#${item.t.numero}</div>
         <div class="report-item-body">
           <div class="report-item-desc">${escapeHtml(item.t.descripcion)}</div>
-          <div class="report-item-tarea"><span class="tarea-label">${tipo} — ${escapeHtml(item.tarea)}</span></div>
+          <div class="report-item-tarea"><span class="tarea-label">${tipoLabel[item.tipo] || '📌'} — ${escapeHtml(item.tarea)}</span></div>
           <div class="report-item-meta">
             <span class="report-item-resp">${modulo}</span>
-            ${respTag}
+            ${respLabel ? `<span class="report-item-resp">${respLabel}</span>` : ''}
           </div>
         </div>`;
       sec.appendChild(el);
@@ -1090,15 +1225,13 @@ function renderReport() {
 
 function buildReportTextPlain() {
   const hoy = today();
-  let text = `REPORTE JURITASK — ${formatDate(hoy)}\n`;
-  text += '='.repeat(50) + '\n\n';
-
+  let text = `TAREAS PARA HOY — ${formatDate(hoy)}\n`;
+  text += '='.repeat(25) + '\n\n';
   const items = document.querySelectorAll('#reportContent .report-item');
-  if (!items.length) { text += 'No hay vencimientos ni tareas para hoy.\n'; return text; }
-
+  if (!items.length) { text += 'Sin novedades para hoy.\n'; return text; }
   items.forEach(el => {
-    const num  = el.querySelector('.report-item-num')?.textContent || '';
-    const desc = el.querySelector('.report-item-desc')?.textContent || '';
+    const num   = el.querySelector('.report-item-num')?.textContent || '';
+    const desc  = el.querySelector('.report-item-desc')?.textContent || '';
     const tarea = el.querySelector('.tarea-label')?.textContent || '';
     text += `${num} — ${desc}\n  ${tarea}\n\n`;
   });
@@ -1159,7 +1292,7 @@ function closeModal() {
 
 function saveTramite() {
   const numero  = document.getElementById('fNumero').value.trim();
-  const desc    = document.getElementById('fDescripcion').value.trim();
+  const desc    = sentenceCase(document.getElementById('fDescripcion').value.trim());
   const modulo  = document.getElementById('fModulo').value;
   const tipo    = modalTipoActual;
   const abogado = tipo === 'abogado' ? document.getElementById('fAbogado').value : null;
@@ -1175,15 +1308,16 @@ function saveTramite() {
   const notaTexto  = document.getElementById('fNota').value.trim();
 
   const tareaInicial = tareaDesc
-    ? [{ descripcion: tareaDesc, fecha: tareaFecha, responsable: tareaResp, estado: 'pendiente' }]
+    ? [{ descripcion: sentenceCase(tareaDesc), fecha: tareaFecha, responsable: tareaResp, estado: 'pendiente' }]
     : [];
   const notaInicial = notaTexto
-    ? [{ texto: notaTexto, fecha: new Date().toISOString() }]
+    ? [{ texto: sentenceCase(notaTexto), fecha: new Date().toISOString() }]
     : [];
 
   if (isEditing) {
     const t = getById(editingId);
     if (t) {
+      pushHistory(`Editar trámite #${numero}`);
       Object.assign(t, { numero, descripcion: desc, modulo, tipo, fechaVencimiento: venc });
       if (tipo === 'abogado') t.abogado = abogado; else delete t.abogado;
       if (tareaInicial.length) t.seguimiento.unshift(...tareaInicial);
@@ -1191,6 +1325,7 @@ function saveTramite() {
     }
     showToast('Trámite actualizado.');
   } else {
+    pushHistory(`Crear trámite #${numero}`);
     const newT = {
       id: genId(), numero, descripcion: desc, modulo, tipo, fechaVencimiento: venc,
       gestion: { analisis: false, cumplimiento: false },
@@ -1208,10 +1343,7 @@ function saveTramite() {
 // CONFIGURACIÓN
 // ============================================================
 function renderConfig() {
-  const n1 = document.getElementById('nameAbogado1'); if (n1) n1.value = STATE.config.abogado1;
-  const n2 = document.getElementById('nameAbogado2'); if (n2) n2.value = STATE.config.abogado2;
-  const c1 = document.getElementById('colorAbogado1'); if (c1) { c1.value = STATE.config.colorAbogado1||'#15803d'; updateColorPreview(1); }
-  const c2 = document.getElementById('colorAbogado2'); if (c2) { c2.value = STATE.config.colorAbogado2||'#1d4ed8'; updateColorPreview(2); }
+  renderAbogadosList();
   const cb1 = document.getElementById('colorBar1'); if (cb1) cb1.value = STATE.config.colorBar1||'#f59e0b';
   const cb2 = document.getElementById('colorBar2'); if (cb2) cb2.value = STATE.config.colorBar2||'#3b5bdb';
   const cb3 = document.getElementById('colorBar3'); if (cb3) cb3.value = STATE.config.colorBar3||'#10b981';
@@ -1219,11 +1351,41 @@ function renderConfig() {
   setDetailMode(STATE.config.detailMode || 'expand');
   renderModulosList();
   renderThemeGrid();
-  // AutoReq
   const arToggle = document.getElementById('autoReqToggle'); if (arToggle) arToggle.checked = STATE.config.autoReq !== false;
   const arTexto = document.getElementById('autoReqTexto'); if (arTexto) arTexto.value = STATE.config.autoReqTexto || '1er req';
   const arDias  = document.getElementById('autoReqDias');  if (arDias)  arDias.value  = STATE.config.autoReqDias  ?? 7;
   syncAutoReqFields();
+}
+
+function renderAbogadosList() {
+  const list = document.getElementById('abogadosList');
+  if (!list) return;
+  list.innerHTML = '';
+  (STATE.config.abogados || []).forEach((a, i) => {
+    const row = document.createElement('div');
+    row.className = 'abogado-config-row';
+    const canDelete = (STATE.config.abogados || []).length > 1;
+    row.innerHTML = `
+      <span class="abogado-num">${i + 1}.</span>
+      <input type="text" class="ab-nombre" value="${escapeAttr(a.nombre)}" placeholder="Nombre" />
+      <input type="color" class="color-picker ab-color" value="${a.color}" title="Color" />
+      <span class="color-preview ab-preview" style="background:${a.color}"></span>
+      <button class="btn-icon btn-icon-danger ab-delete" title="Eliminar" ${canDelete ? '' : 'disabled style="opacity:.3;cursor:default"'}>✕</button>`;
+    row.querySelector('.ab-color').addEventListener('input', e => {
+      row.querySelector('.ab-preview').style.background = e.target.value;
+    });
+    if (canDelete) {
+      row.querySelector('.ab-delete').addEventListener('click', async () => {
+        const ok = await showConfirm(`¿Eliminar al abogado "${a.nombre}"?\nLos trámites asignados quedarán sin abogado asignado.`);
+        if (ok) {
+          STATE.config.abogados.splice(i, 1);
+          saveAll(); applyCssColors(); updateAbogadoSelects(); renderAbogadosList(); renderAll();
+          showToast('Abogado eliminado.');
+        }
+      });
+    }
+    list.appendChild(row);
+  });
 }
 
 function syncAutoReqFields() {
@@ -1246,12 +1408,6 @@ function renderThemeGrid() {
     card.addEventListener('click', () => { applyTheme(theme.id); saveAll(); renderThemeGrid(); });
     grid.appendChild(card);
   });
-}
-
-function updateColorPreview(n) {
-  const picker = document.getElementById(`colorAbogado${n}`);
-  const prev   = document.getElementById(`preview${n}`);
-  if (picker && prev) prev.style.background = picker.value;
 }
 
 function updateBarPreviews() {
@@ -1296,10 +1452,22 @@ function importData(file) {
       const data = JSON.parse(e.target.result);
       if (data.tramites) STATE.tramites = data.tramites;
       if (data.order)    STATE.order = data.order;
-      if (data.config)   STATE.config = Object.assign({...DEFAULT_CONFIG, modulos:[...DEFAULT_CONFIG.modulos]}, data.config);
+      if (data.config) {
+        STATE.config = Object.assign(
+          { ...DEFAULT_CONFIG, abogados: DEFAULT_CONFIG.abogados.map(a=>({...a})), modulos:[...DEFAULT_CONFIG.modulos] },
+          data.config
+        );
+        // Migrar formato antiguo: abogado1/abogado2 sueltos → array abogados
+        if (!STATE.config.abogados?.length) {
+          STATE.config.abogados = [
+            { key:'abogado1', nombre: data.config.abogado1||'Abogado 1', color: data.config.colorAbogado1||'#15803d' },
+            { key:'abogado2', nombre: data.config.abogado2||'Abogado 2', color: data.config.colorAbogado2||'#1d4ed8' },
+          ];
+        }
+      }
       STATE.tramites.forEach(migrateTramite);
       saveAll(); applyCssColors(); applyTheme(STATE.config.theme||'claro');
-      populateModuloSelects(); updateAbogadoNames();
+      populateModuloSelects(); updateAbogadoSelects();
       setColumns(STATE.config.columns||1);
       const ds = document.getElementById('sortSelect'); if(ds) ds.value = STATE.config.sortBy||'vencimiento';
       const ms = document.getElementById('sortSelectMob'); if(ms) ms.value = STATE.config.sortBy||'vencimiento';
@@ -1507,11 +1675,17 @@ function init() {
   document.getElementById('deleteDetailBtn').addEventListener('click', async () => {
     const idToDelete = currentDetailId;
     if (!idToDelete) return;
-    // Cerrar el overlay de detalle PRIMERO para que el confirm dialog sea visible y funcional
-    closeDetail();
-    await new Promise(r => setTimeout(r, 50)); // esperar transición CSS
+    // confirmOverlay tiene z-index 9999 — se muestra encima de cualquier overlay
+    // Temporalmente desactivamos pointer-events del detailOverlay para que los clicks
+    // lleguen al confirmOverlay correctamente
+    const detailOv = document.getElementById('detailOverlay');
+    detailOv.style.pointerEvents = 'none';
     const ok = await showConfirm('¿Eliminar este trámite? Esta acción no se puede deshacer.');
+    detailOv.style.pointerEvents = '';
     if (ok) {
+      const toDel = getById(idToDelete);
+      pushHistory(`Eliminar trámite #${toDel?.numero || idToDelete}`);
+      closeDetail();
       STATE.tramites = STATE.tramites.filter(t => t.id !== idToDelete);
       STATE.order    = STATE.order.filter(id => id !== idToDelete);
       saveAll(); renderAll(); showToast('Trámite eliminado.');
@@ -1536,21 +1710,39 @@ function init() {
   document.getElementById('importBtn').addEventListener('click', () => document.getElementById('importFile').click());
   document.getElementById('importFile').addEventListener('change', e => { if (e.target.files[0]) { importData(e.target.files[0]); e.target.value = ''; } });
 
-  // Config
+  // Config: modo detalle
   document.getElementById('modeExpand').addEventListener('click', () => setDetailMode('expand'));
   document.getElementById('modeModal').addEventListener('click',  () => setDetailMode('modal'));
 
-  document.getElementById('colorAbogado1').addEventListener('input', () => updateColorPreview(1));
-  document.getElementById('colorAbogado2').addEventListener('input', () => updateColorPreview(2));
-  document.getElementById('saveNamesBtn').addEventListener('click', () => {
-    const n1 = document.getElementById('nameAbogado1').value.trim();
-    const n2 = document.getElementById('nameAbogado2').value.trim();
-    if (!n1 || !n2) { showToast('Los nombres no pueden estar vacíos.'); return; }
-    STATE.config.abogado1 = n1; STATE.config.abogado2 = n2;
-    STATE.config.colorAbogado1 = document.getElementById('colorAbogado1').value;
-    STATE.config.colorAbogado2 = document.getElementById('colorAbogado2').value;
-    saveAll(); applyCssColors(); updateAbogadoNames(); renderAll();
-    showToast('Configuración guardada.');
+  // Config: abogados dinámicos
+  document.getElementById('saveAbogadosBtn').addEventListener('click', () => {
+    const rows = document.querySelectorAll('#abogadosList .abogado-config-row');
+    let valid = true;
+    rows.forEach((row, i) => {
+      const nombre = row.querySelector('.ab-nombre').value.trim();
+      const color  = row.querySelector('.ab-color').value;
+      if (!nombre) { valid = false; return; }
+      if (STATE.config.abogados[i]) {
+        STATE.config.abogados[i].nombre = sentenceCase(nombre);
+        STATE.config.abogados[i].color  = color;
+      }
+    });
+    if (!valid) { showToast('Los nombres no pueden estar vacíos.'); return; }
+    saveAll(); applyCssColors(); updateAbogadoSelects(); renderAbogadosList(); renderAll();
+    showToast('Abogados guardados.');
+  });
+  document.getElementById('addAbogadoBtn').addEventListener('click', () => {
+    const inp = document.getElementById('newAbNombre');
+    const nombre = inp.value.trim();
+    if (!nombre) { showToast('Escribe el nombre del nuevo abogado.'); return; }
+    const colors = ['#15803d','#1d4ed8','#9333ea','#c2410c','#0891b2','#be123c','#854d0e'];
+    const color = colors[(STATE.config.abogados||[]).length % colors.length];
+    const key = 'abogado_' + Date.now();
+    STATE.config.abogados = STATE.config.abogados || [];
+    STATE.config.abogados.push({ key, nombre: sentenceCase(nombre), color });
+    inp.value = '';
+    saveAll(); applyCssColors(); updateAbogadoSelects(); renderAbogadosList();
+    showToast(`"${nombre}" añadido.`);
   });
 
   document.getElementById('colorBar1').addEventListener('input', updateBarPreviews);
@@ -1601,7 +1793,7 @@ function init() {
       if (confirm('¿Estás seguro? Se perderán todos los trámites.')) {
         Object.values(KEYS).forEach(k => localStorage.removeItem(k));
         STATE.tramites = []; STATE.order = [];
-        STATE.config = { ...DEFAULT_CONFIG, modulos: [...DEFAULT_CONFIG.modulos] };
+        STATE.config = { ...DEFAULT_CONFIG, abogados: DEFAULT_CONFIG.abogados.map(a=>({...a})), modulos: [...DEFAULT_CONFIG.modulos] };
         applyCssColors(); applyTheme('claro');
         populateModuloSelects(); updateAbogadoNames();
         const ds2 = document.getElementById('sortSelect'); if(ds2) ds2.value = 'vencimiento';
@@ -1646,6 +1838,13 @@ function init() {
 
   // ESC
   document.addEventListener('keydown', e => {
+    // Ctrl+Z / Cmd+Z — deshacer
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      // Solo si no hay un input de texto activo
+      const active = document.activeElement;
+      const isTyping = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
+      if (!isTyping) { e.preventDefault(); undo(); return; }
+    }
     if (e.key !== 'Escape') return;
     if (document.getElementById('confirmOverlay').classList.contains('open')) { _confirmClose(false); return; }
     if (document.getElementById('reportOverlay').classList.contains('open')) closeReport();

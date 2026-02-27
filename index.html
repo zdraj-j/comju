@@ -203,19 +203,13 @@
 
         <div class="config-section">
           <h3>Abogados</h3>
-          <div class="config-row abogado-config-row">
-            <label>Abogado 1</label>
-            <input type="text" id="nameAbogado1" />
-            <input type="color" id="colorAbogado1" class="color-picker" />
-            <span class="color-preview" id="preview1"></span>
+          <p class="config-hint" style="margin-bottom:10px">Edita el nombre y color de cada abogado. Puedes añadir o eliminar abogados.</p>
+          <div id="abogadosList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"></div>
+          <div class="config-row" style="margin-top:4px;flex-wrap:wrap;gap:8px">
+            <input type="text" id="newAbNombre" placeholder="Nombre del nuevo abogado…" style="flex:1;min-width:160px" />
+            <button class="btn-primary" id="addAbogadoBtn" style="white-space:nowrap">＋ Añadir abogado</button>
           </div>
-          <div class="config-row abogado-config-row">
-            <label>Abogado 2</label>
-            <input type="text" id="nameAbogado2" />
-            <input type="color" id="colorAbogado2" class="color-picker" />
-            <span class="color-preview" id="preview2"></span>
-          </div>
-          <button class="btn-primary" id="saveNamesBtn">Guardar</button>
+          <button class="btn-primary" id="saveAbogadosBtn" style="margin-top:12px">Guardar cambios</button>
         </div>
 
         <div class="config-section">
